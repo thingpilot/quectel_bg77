@@ -70,7 +70,6 @@ int QUECTEL_BG77::tcpip_startup(){
     mutex_lock();
 
     // send AT command and wait for response
-        
     _parser->send("AT");
     rtos::ThisThread::sleep_for(300ms);
     // if no response, return fail
@@ -78,6 +77,19 @@ int QUECTEL_BG77::tcpip_startup(){
 	{
 		status = -1;	
 	}
+
+    _parser->send("AT+QCFG=\"band\",0,0,0x80000"); //band 20 we can have 
+    if(!_parser->recv("OK"))
+    {
+        status = -1;
+    }
+    rtos::ThisThread::sleep_for(10s);
+
+    _parser->send("AT+QCFG=\"iotopmode\",1,1"); //configure network to be searched/ nbiot, take effect immediately
+    if(!_parser->recv("OK"))
+    {
+        status = -1;
+    }
 
     // query the sim card status
     if(status == 0){
