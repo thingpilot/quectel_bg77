@@ -56,6 +56,133 @@ void QUECTEL_BG77::mutex_unlock()
 	_smutex.unlock();
 }
 
+int QUECTEL_BG77::tcpip_startup(){
+
+    int status = 0;
+
+    char cpinBuff[16];
+    int cereg_n;
+    int ceregStatus;
+    char qiBuff[64];
+
+    int cregCount = 0;
+
+    mutex_lock();
+
+    // send AT command and wait for response
+        
+    _parser->send("AT");
+    rtos::ThisThread::sleep_for(300ms);
+    // if no response, return fail
+	if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+
+    // query the sim card status
+    if(status == 0){
+        _parser->send("AT+CPIN?");
+        rtos::ThisThread::sleep_for(300ms);
+        if(!_parser->recv("+CPIN: %s", cpinBuff))
+        {
+		    status = -1;
+	    }
+    }
+
+    // if fails to identify, return fail
+    if(status == 0){
+        if(!std::strcmp(cpinBuff,"READY")){
+            status = -1;
+        }
+    }
+
+    while(status == 0 && (ceregStatus != 1 || ceregStatus != 5)){
+        rtos::ThisThread::sleep_for(20000ms);
+        _parser->send("AT+QCSQ");
+        rtos::ThisThread::sleep_for(300ms);
+        if (!_parser->recv("OK"))
+        {
+            status = -1;	
+        }
+
+        _parser->send("AT+CEREG?");
+        rtos::ThisThread::sleep_for(300ms);
+        if(!_parser->recv("+CEREG: %d,%d", &cereg_n, &ceregStatus))
+        {
+		    status = -1;
+	    }
+
+        if(cregCount > 19){
+            status = -1;
+        }
+        cregCount++;
+    }
+    
+    // if sucess, wait 60s and query CEREG
+    if(status == 0){
+        rtos::ThisThread::sleep_for(60000ms);
+        _parser->send("AT+CEREG?");
+        rtos::ThisThread::sleep_for(300ms);
+        if(!_parser->recv("+CEREG: %d,%d", &cereg_n, &ceregStatus))
+        {
+		    status = -1;
+	    }
+    }
+
+    if(status == 0 && (ceregStatus != 1 || ceregStatus != 5)){
+        rtos::ThisThread::sleep_for(60000ms);
+        _parser->send("AT+CEREG?");
+        rtos::ThisThread::sleep_for(300ms);
+        if(!_parser->recv("+CEREG: %d,%d", &cereg_n, &ceregStatus))
+        {
+		    status = -1;
+	    }
+    }
+
+    // configure PDP context with QICSGP (vodafone APN)
+    if(status == 0){
+        _parser->send("AT+QICSGP=1,1,\"data.rewicom.net\"");
+        rtos::ThisThread::sleep_for(300ms);
+        if (!_parser->recv("OK"))
+        {
+            status = -1;	
+        }
+    }
+
+    // activate the PDP context with QIACT=1
+    if(status == 0){
+        _parser->send("AT+QIACT=1");
+        rtos::ThisThread::sleep_for(300ms);
+        if (!_parser->recv("OK"))
+        {
+            status = -1;	
+        }
+    }
+
+    // query the PDP context with QIACT?
+    if(status == 0){
+        _parser->send("AT+QIACT?");
+        rtos::ThisThread::sleep_for(300ms);
+        _parser->recv("%s", qiBuff);
+    }
+
+    // if fail, wait 150s and try again
+        // if fails to activate a second time, return fail
+
+    // try to open a connection with QIOPEN up to 5 times with 3s delay
+
+    // if fail, deactivate PDP context with QIDEACT
+        // return fail
+
+    // try sending some data with QISEND
+
+    // query ACK with QISEND every 5s up to 24 times
+        // if no ack, return fail
+
+    mutex_unlock();
+	return (status);
+}
+
 int QUECTEL_BG77::at()
 {
     int status = 0;

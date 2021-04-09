@@ -96,6 +96,11 @@ class QUECTEL_BG77
          */
         void mutex_unlock();
 
+        /** Start up a TCP IP session according to docs
+            @return Indicates success or failure 
+        */
+        int tcpip_startup();
+
 		/** Send "AT" command
             @return Indicates success or failure 
          */
