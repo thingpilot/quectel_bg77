@@ -78,18 +78,40 @@ int QUECTEL_BG77::tcpip_startup(){
 		status = -1;	
 	}
 
-    _parser->send("AT+QCFG=\"band\",0,0,0x80000"); //band 20 we can have 
+    _parser->send("AT");
+    rtos::ThisThread::sleep_for(300ms);
+    // if no response, return fail
+	if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+
+    // make sure we are in full functionality mode
+    _parser->send("AT+CFUN=1,0");
+	if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+
+    _parser->send("AT+QCFG=\"band\",0,0,0x80000"); //band 20
     if(!_parser->recv("OK"))
     {
         status = -1;
     }
-    rtos::ThisThread::sleep_for(10s);
+
+    _parser->send("AT+QCFG=\"nb1/bandprior\",14"); //band 20
+    if(!_parser->recv("OK"))
+    {
+        status = -1;
+    }
 
     _parser->send("AT+QCFG=\"iotopmode\",1,1"); //configure network to be searched/ nbiot, take effect immediately
     if(!_parser->recv("OK"))
     {
         status = -1;
     }
+
+    rtos::ThisThread::sleep_for(10s);
 
     // query the sim card status
     if(status == 0){
@@ -108,8 +130,19 @@ int QUECTEL_BG77::tcpip_startup(){
         }
     }
 
-    while(status == 0 && (ceregStatus != 1 || ceregStatus != 5)){
-        rtos::ThisThread::sleep_for(20000ms);
+    // configure PDP context with QICSGP (vodafone APN)
+    if(status == 0){
+        _parser->send("AT+QICSGP=1,1,\"lpwa.vodafone.iot\"");
+        rtos::ThisThread::sleep_for(300ms);
+        if (!_parser->recv("OK"))
+        {
+            status = -1;	
+        }
+    }
+
+    //while(status == 0 && (ceregStatus != 1 || ceregStatus != 5)){
+    for(int ii = 0; ii < 1; ii++){
+        rtos::ThisThread::sleep_for(35000ms);
         _parser->send("AT+QCSQ");
         rtos::ThisThread::sleep_for(300ms);
         if (!_parser->recv("OK"))
@@ -117,48 +150,24 @@ int QUECTEL_BG77::tcpip_startup(){
             status = -1;	
         }
 
-        _parser->send("AT+CEREG?");
-        rtos::ThisThread::sleep_for(300ms);
-        if(!_parser->recv("+CEREG: %d,%d", &cereg_n, &ceregStatus))
-        {
-		    status = -1;
-	    }
-
-        if(cregCount > 19){
-            status = -1;
-        }
-        cregCount++;
-    }
-    
-    // if sucess, wait 60s and query CEREG
-    if(status == 0){
-        rtos::ThisThread::sleep_for(60000ms);
-        _parser->send("AT+CEREG?");
-        rtos::ThisThread::sleep_for(300ms);
-        if(!_parser->recv("+CEREG: %d,%d", &cereg_n, &ceregStatus))
-        {
-		    status = -1;
-	    }
-    }
-
-    if(status == 0 && (ceregStatus != 1 || ceregStatus != 5)){
-        rtos::ThisThread::sleep_for(60000ms);
-        _parser->send("AT+CEREG?");
-        rtos::ThisThread::sleep_for(300ms);
-        if(!_parser->recv("+CEREG: %d,%d", &cereg_n, &ceregStatus))
-        {
-		    status = -1;
-	    }
-    }
-
-    // configure PDP context with QICSGP (vodafone APN)
-    if(status == 0){
-        _parser->send("AT+QICSGP=1,1,\"data.rewicom.net\"");
+        _parser->send("AT+QNWINFO");
         rtos::ThisThread::sleep_for(300ms);
         if (!_parser->recv("OK"))
         {
             status = -1;	
         }
+
+        _parser->send("AT+CEREG?");
+        rtos::ThisThread::sleep_for(300ms);
+        if(!_parser->recv("+CEREG: %d,%d", &cereg_n, &ceregStatus))
+        {
+		    status = -1;
+	    }
+
+        if(cregCount > 2){
+            status = -1;
+        }
+        cregCount++;
     }
 
     // activate the PDP context with QIACT=1
@@ -653,13 +662,86 @@ int QUECTEL_BG77::response_http_header()
 
 int QUECTEL_BG77::set_http_url()
 {
+    string url = "https://api.testing.thingpilot.com/v0/metrics";
+    string postbody = "{\"uniqueId\":\"0577916f-dfbe-4bb3-948d-f04b7e370953\",\"deviceType_id\":\"6071f29e093b210013071ba8\",\"metrics\":{\"Temp and Humidity\":[{\"startTimestamp\":\"2021-01-01T00:00:00Z\",\"endTimestamp\":\"2021-01-01T00:01:00Z\",\"humidity\":[10,20,30,40],\"temperature\":[100,200,300,400]}]}}";
+
+
     int status = 0;
     mutex_lock();
-	_parser->send("AT+QHTTPURL=43,80"); //TODO: change url length , timeout, url can be inputed aafter this
+
+    _parser->send("AT+QHTTPCFG=\"requestheader\",1"); // set customisation of header
 	if (!_parser->recv("OK"))
 	{
 		status = -1;	
 	}
+
+    _parser->send("POST /metrics/v0 HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: Keep-Alive\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n", postbody.size()); // input header
+    if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+
+	_parser->send("AT+QHTTPURL=%d,80", url.size()); //TODO: change url length , timeout, url can be inputed aafter this
+    rtos::ThisThread::sleep_for(500ms);
+	if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+
+    _parser->send("https://api.testing.thingpilot.com/v0/metrics");
+    if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+
+    // POST
+    _parser->send("AT+QHTTPPOST=%d,30,30", postbody.size());
+    rtos::ThisThread::sleep_for(5s);
+    if (!_parser->recv("OK:")) 
+	{
+		status = -1;	
+	}
+    rtos::ThisThread::sleep_for(500ms);
+
+    //_parser->send("POST /metrics/v0 HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: Keep-Alive\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n", postbody.size()); // input header
+    _parser->send("POST /metrics/v0 HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: Keep-Alive\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n{\"uniqueId\":\"0577916f-dfbe-4bb3-948d-f04b7e370953\",\"deviceType_id\":\"6071f29e093b210013071ba8\",\"metrics\":{\"Temp and Humidity\":[{\"startTimestamp\":\"2021-01-01T00:00:00Z\",\"endTimestamp\":\"2021-01-01T00:01:00Z\",\"humidity\":[10,20,30,40],\"temperature\":[100,200,300,400]}]}}, postbody.size());
+    if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+
+    rtos::ThisThread::sleep_for(4s);
+
+    // get response and wait up to 20s for the HTTP session to close
+    _parser->send("AT+QHTTPREAD=20");
+    rtos::ThisThread::sleep_for(2s);
+    if (!_parser->recv("+QHTTPREAD: 0"))
+	{
+		status = -1;	
+	}
+
+    rtos::ThisThread::sleep_for(4s);
+
+
+
+    // send the GET request and timeout after 20s
+    _parser->send("AT+QHTTPGET=20");
+    rtos::ThisThread::sleep_for(2s);
+    if (!_parser->recv("+QHTTPGET: 0,200")) // 200 means OK response
+	{
+		status = -1;	
+	}
+
+    rtos::ThisThread::sleep_for(2s);
+
+    // get response and wait up to 20s for the HTTP session to close
+    _parser->send("AT+QHTTPREAD=20");
+    rtos::ThisThread::sleep_for(2s);
+    if (!_parser->recv("+QHTTPREAD: 0"))
+	{
+		status = -1;	
+	}
+
     mutex_unlock();
 	return (status);
 }
