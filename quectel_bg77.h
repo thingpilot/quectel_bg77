@@ -234,6 +234,10 @@ class QUECTEL_BG77
             @return Indicates success or failure 
          */
         int set_http_url();
+	
+ 	/** Power saving mode Settings
+         */
+        int cpsms();
         
         /** Turn of the module.  This procedure is realized by letting the module log off from the network and allowing the software to
             enter a secure and safe data state before disconnecting the power supply

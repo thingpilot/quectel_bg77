@@ -7,6 +7,6 @@ The BG77 is an ultra-compact LPWA module supporting LTE Cat M1, LTE Cat NB2 and 
  - Configure band
  - Get signal quality (CSQ)
  - Send a ping
- - Turn off/ on he module 
+ - Turn off/ on the module 
  
 

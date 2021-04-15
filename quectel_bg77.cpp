@@ -14,6 +14,8 @@
 #include <string>
 #include <sstream>  
 
+
+//TODO: pdp defined by the user
  
 QUECTEL_BG77::QUECTEL_BG77(PinName txu, PinName rxu, PinName pwkey, PinName ctl1, PinName ctl2,  
             PinName ctl3, int baud) :_pwkey(pwkey), _ctl1(ctl1, 1), _ctl2(ctl2, 1), _ctl3(ctl3, 0) //001 lte //100 nbiot
@@ -523,19 +525,68 @@ int QUECTEL_BG77::set_http_url()
 	return (status);
 }
 
+int QUECTEL_BG77::cpsms()
+{
+    int status = 0;
+    mutex_lock();
+    _parser->send("AT+QPSMS=?");
+    if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+    rtos::ThisThread::sleep_for(300ms);
 
+	_parser->send("AT+QPSMS=1");
+	if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+    rtos::ThisThread::sleep_for(300ms);
+
+     _parser->send("AT+CPSMS=?");
+    if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+    rtos::ThisThread::sleep_for(300ms);
+
+	_parser->send("AT+CPSMS=1");
+	if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+    rtos::ThisThread::sleep_for(300ms);
+
+    // _parser->send("AT+QSCLK=1");
+    // if (!_parser->recv("OK"))
+	// {
+	// 	status = -1;	
+	// }
+    // rtos::ThisThread::sleep_for(300ms);
+
+    mutex_unlock();
+	return (status);
+}
 
 int QUECTEL_BG77::turn_off_module()
 {
     int status = 0;
     mutex_lock();
-	_parser->send("AT+QPOWD");
-	if (!_parser->recv("OK"))
+    _parser->send("AT+CFUN=0");
+    if (!_parser->recv("OK"))
 	{
 		status = -1;	
 	}
+    rtos::ThisThread::sleep_for(300ms);
+
+    _parser->send("AT+QPOWD");
+    if (!_parser->recv("OK"))
+    {
+	status = -1;	
+    }
+    rtos::ThisThread::sleep_for(300ms);
     mutex_unlock();
-	return (status);
+    return (status);
 }
 
 int QUECTEL_BG77::cops_info()
