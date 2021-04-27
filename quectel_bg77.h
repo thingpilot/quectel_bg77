@@ -15,6 +15,8 @@
  */
 #include <mbed.h>
 #include "SerialStream.h"
+
+#define MSG_BUFF_SIZE 300
 /**
    Communicating with Quectel according to the AT manual
    https://www.quectel.com/UploadImage/Downlad/Quectel_BG95&BG77_AT_Commands_Manual_V1.0.pdf
@@ -59,6 +61,8 @@ class QUECTEL_BG77
 
 	public:
 
+        char messageBuff[MSG_BUFF_SIZE];
+
         /** Band Configurations */
         enum e_band
         {
@@ -91,15 +95,14 @@ class QUECTEL_BG77
          */
         void mutex_lock();
 
+        /** Clears the buffer
+        */
+        void clearMessageBuff();
+
         /** Unlock the enforce of mutual exclusion concurrency control policy
             @return Nothing
          */
         void mutex_unlock();
-
-        /** Start up a TCP IP session according to docs
-            @return Indicates success or failure 
-        */
-        int tcpip_startup();
 
 		/** Send "AT" command
             @return Indicates success or failure 
@@ -243,6 +246,12 @@ class QUECTEL_BG77
  	/** Power saving mode Settings
          */
         int cpsms();
+
+        /** Sends the post to the server
+        */
+        int send_http_post();
+
+        int tcpip_startup();
         
         /** Turn of the module.  This procedure is realized by letting the module log off from the network and allowing the software to
             enter a secure and safe data state before disconnecting the power supply

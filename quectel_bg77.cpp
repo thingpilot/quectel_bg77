@@ -11,7 +11,6 @@
 /** Includes */
 #include "quectel_bg77.h"
 #include <cstdint>
-#include <string>
 #include <sstream>  
 
 
@@ -202,6 +201,12 @@ int QUECTEL_BG77::tcpip_startup(){
 
     mutex_unlock();
 	return (status);
+}
+
+void QUECTEL_BG77::clearMessageBuff(){
+    for(int ii = 0; ii < MSG_BUFF_SIZE; ii++){
+        messageBuff[ii] = '\0';
+    }
 }
 
 int QUECTEL_BG77::at()
@@ -662,10 +667,8 @@ int QUECTEL_BG77::response_http_header()
 
 int QUECTEL_BG77::set_http_url()
 {
-    string url = "https://api.testing.thingpilot.com/v0/metrics";
-    string postbody = "{\"uniqueId\":\"0577916f-dfbe-4bb3-948d-f04b7e370953\",\"deviceType_id\":\"6071f29e093b210013071ba8\",\"metrics\":{\"Temp and Humidity\":[{\"startTimestamp\":\"2021-01-01T00:00:00Z\",\"endTimestamp\":\"2021-01-01T00:01:00Z\",\"humidity\":[10,20,30,40],\"temperature\":[100,200,300,400]}]}}";
-    string header = "POST /v0/metrics?info=true HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: keep-alive\r\nContent-Type: application/json\r\nContent-Length: 265\r\n\r\n";
-    int messageSize = postbody.size() + header.size();
+    const char url[] = "https://api.testing.thingpilot.com/v0/metrics";
+    
 
     int status = 0;
     mutex_lock();
@@ -676,14 +679,16 @@ int QUECTEL_BG77::set_http_url()
 		status = -1;	
 	}
 
-	_parser->send("AT+QHTTPURL=%d,80", url.size()); //TODO: change url length , timeout, url can be inputed aafter this
+	_parser->send("AT+QHTTPURL=%d,80", sizeof(url)); //url size //TODO: change url length , timeout, url can be inputed aafter this
     rtos::ThisThread::sleep_for(500ms);
 	if (!_parser->recv("CONNECT"))
 	{
 		status = -1;	
 	}
 
-    _parser->send("https://api.testing.thingpilot.com/v0/metrics?info=true");
+    //clearMessageBuff();
+    //messageBuff = 'https://api.testing.thingpilot.com/v0/metrics?info=true';
+    _parser->send(url);
     if (!_parser->recv("OK"))
 	{
 		status = -1;	
@@ -691,16 +696,41 @@ int QUECTEL_BG77::set_http_url()
 
     rtos::ThisThread::sleep_for(2s);
 
+    
+    mutex_unlock();
+	return (status);
+}
+
+int QUECTEL_BG77::send_http_post(){
+    int status = 0;
+    mutex_lock();
+
+    const char header[] = "POST /v0/metrics?info=true HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: keep-alive\r\nContent-Type: application/json\r\nContent-Length: 265\r\n\r\n";
+    const char postbody[] = "{\"uniqueId\":\"0577916f-dfbe-4bb3-948d-f04b7e370953\",\"deviceType_id\":\"6071f29e093b210013071ba8\",\"metrics\":{\"Temp and Humidity\":[{\"startTimestamp\":\"2021-01-01T00:00:00Z\",\"endTimestamp\":\"2021-01-01T00:01:00Z\",\"humidity\":[10,20,30,40],\"temperature\":[100,200,300,400]}]}}";
+    int messageSize = 265 + 193;//postbody.size() + header.size();
+
     // POST
-    _parser->send("AT+QHTTPPOST=%d,30,30", messageSize);
+    _parser->send("AT+QHTTPPOST=%d,30,30", 458);
     rtos::ThisThread::sleep_for(2s);
     if (!_parser->recv("CONNECT:")) 
 	{
 		status = -1;	
 	}
-    rtos::ThisThread::sleep_for(500ms);
+    rtos::ThisThread::sleep_for(1s);
 
-    _parser->send("POST /v0/metrics?info=true HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: keep-alive\r\nContent-Type: application/json\r\nContent-Length: 265\r\n\r\n{\"uniqueId\":\"0577916f-dfbe-4bb3-948d-f04b7e370953\",\"deviceType_id\":\"6071f29e093b210013071ba8\",\"metrics\":{\"Temp and Humidity\":[{\"startTimestamp\":\"2021-01-01T00:00:00Z\",\"endTimestamp\":\"2021-01-01T00:01:00Z\",\"humidity\":[10,20,30,40],\"temperature\":[100,200,300,400]}]}}");
+    _parser->write(header, 193);
+    _parser->write(postbody, 265);
+    // _parser->send("{\"uniqueId\":\"0577916f-dfbe-4bb3-948d-f04b7e370953\",");
+    // _parser->send("\"deviceType_id\":\"6071f29e093b210013071ba8\",");
+    // _parser->send("\"metrics\":{\"Temp and Humidity\":[{\"startTimestamp\":\"2021-01-01T00:00:00Z\",");
+    // _parser->send("\"endTimestamp\":\"2021-01-01T00:01:00Z\",");
+    // _parser->send("\"humidity\":[10,20,30,40],\"temperature\":[100,200,300,400]}]}}");
+
+    // _parser->send("{\"uniqueId\":\"0577916f-dfbe-4bb3-948d-f04b7e370953\",");
+    // _parser->send("\"deviceType_id\":\"6071f29e093b210013071ba8\",\"metrics\"");
+    // _parser->send(":{\"Temp and Humidity\":[{\"startTimestamp\":\"2021-01-01T00:00:00Z\",");
+    // _parser->send("\"humidity\":[10,20,30,40],\"temperature\":[100,200,300,400]}]}}");
+
     rtos::ThisThread::sleep_for(2s);
     if (!_parser->recv("OK"))
 	{
@@ -710,8 +740,8 @@ int QUECTEL_BG77::set_http_url()
     rtos::ThisThread::sleep_for(5s);
 
     // get response and wait up to 20s for the HTTP session to close
-    _parser->send("AT+QHTTPREAD=30");
-    rtos::ThisThread::sleep_for(30s);
+    _parser->send("AT+QHTTPREAD=20");
+    rtos::ThisThread::sleep_for(20s);
     if (!_parser->recv("+QHTTPREAD: 0"))
 	{
 		status = -1;	
@@ -719,25 +749,6 @@ int QUECTEL_BG77::set_http_url()
 
     rtos::ThisThread::sleep_for(5s);
 
-
-
-    // // send the GET request and timeout after 20s
-    // _parser->send("AT+QHTTPGET=20");
-    // rtos::ThisThread::sleep_for(2s);
-    // if (!_parser->recv("+QHTTPGET: 0,200")) // 200 means OK response
-	// {
-	// 	status = -1;	
-	// }
-
-    // rtos::ThisThread::sleep_for(2s);
-
-    // // get response and wait up to 20s for the HTTP session to close
-    // _parser->send("AT+QHTTPREAD=20");
-    // rtos::ThisThread::sleep_for(2s);
-    // if (!_parser->recv("+QHTTPREAD: 0"))
-	// {
-	// 	status = -1;	
-	// }
 
     mutex_unlock();
 	return (status);
