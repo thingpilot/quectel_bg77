@@ -248,8 +248,9 @@ class QUECTEL_BG77
         int cpsms();
 
         /** Sends the post to the server
+            @return true if safe, false if recovery needed
         */
-        int send_http_post();
+        bool send_http_post(const char *lat, uint8_t latLen, const char *lon, uint8_t lonLen, const char *stateStr);
 
         int tcpip_startup();
         

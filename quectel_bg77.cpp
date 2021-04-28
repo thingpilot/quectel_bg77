@@ -11,7 +11,7 @@
 /** Includes */
 #include "quectel_bg77.h"
 #include <cstdint>
-#include <sstream>  
+#include <sstream> 
 
 
 //TODO: pdp defined by the user
@@ -22,7 +22,7 @@ QUECTEL_BG77::QUECTEL_BG77(PinName txu, PinName rxu, PinName pwkey, PinName ctl1
 	_serial = new BufferedSerial(txu, rxu, baud);
 	_parser = new ATCmdParser(_serial);
 	_parser->set_delimiter("\r\n");
-	_parser->set_timeout(600); //TODO: check with ~300
+	_parser->set_timeout(125000); //TODO: check with ~300
     _modem_on();
 }
 
@@ -185,6 +185,24 @@ int QUECTEL_BG77::tcpip_startup(){
         rtos::ThisThread::sleep_for(300ms);
         _parser->recv("%s", qiBuff);
     }
+
+    // syncronise the tim with NTP server
+    // if(status == 0){
+    //     _parser->send("AT+QNTP=1,\"136.243.177.133\",123 ");
+    //     rtos::ThisThread::sleep_for(300ms);
+    //     if (!_parser->recv("+QNTP:"))
+    //     {
+    //         status = -1;	
+    //     }
+    // }
+
+    _parser->send("AT+QLTS=2");
+    rtos::ThisThread::sleep_for(300ms);
+    if (!_parser->recv("+QLTS:"))
+    {
+        status = -1;	
+    }
+
 
     // if fail, wait 150s and try again
         // if fails to activate a second time, return fail
@@ -567,7 +585,7 @@ int QUECTEL_BG77::enter_psm(int mode)
 	_parser->send("AT+QCFG=\"psm/enter\",%d", mode);
 	if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = -1;
 	}
     mutex_unlock();
 	return (status);
@@ -701,35 +719,89 @@ int QUECTEL_BG77::set_http_url()
 	return (status);
 }
 
-int QUECTEL_BG77::send_http_post(){
+bool QUECTEL_BG77::send_http_post(const char *lat, uint8_t latLen, const char *lon, uint8_t lonLen, const char *stateStr){
     int status = 0;
     mutex_lock();
 
-    const char header[] = "POST /v0/metrics?info=true HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: keep-alive\r\nContent-Type: application/json\r\nContent-Length: 265\r\n\r\n";
-    const char postbody[] = "{\"uniqueId\":\"0577916f-dfbe-4bb3-948d-f04b7e370953\",\"deviceType_id\":\"6071f29e093b210013071ba8\",\"metrics\":{\"Temp and Humidity\":[{\"startTimestamp\":\"2021-01-01T00:00:00Z\",\"endTimestamp\":\"2021-01-01T00:01:00Z\",\"humidity\":[10,20,30,40],\"temperature\":[100,200,300,400]}]}}";
-    int messageSize = 265 + 193;//postbody.size() + header.size();
+    //const char header[] = "POST /v0/metrics?info=true HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: keep-alive\r\nContent-Type: application/json\r\nContent-Length: 221\r\n\r\n";
+    //const char postbody[] = "{\"uniqueId\":\"d971240b-3e55-45d4-9973-d8419e1186d5\",\"deviceType_id\":\"608937e2cd4daf00130302b0\",\"metrics\":{\"0\":[{\"0\":[\"IS\"],\"t\":[\"2021-01-01T00:00:00Z\"]}],\"1\":[{\"0\":[51.12345],\"1\":[-0.92345],\"t\":[\"2021-01-01T00:00:00Z\"]}]}}";
+    int messageBodySize[] = {117, 2, 9, 20, 16, latLen, 7, lonLen, 8, 20, 6};
+    int headerSize[] = {186, 3, 4};
+
+    int totalHeaderSize = headerSize[0] + headerSize[1] + headerSize[2];
+
+    int totalMessageBodySize = 0;
+
+    for(int ii = 0; ii < 11; ii++){
+        totalMessageBodySize += messageBodySize[ii];
+    }
+
+    int totalSize = totalHeaderSize + totalMessageBodySize;
+    char contentLength[4];
+
+    char timeBuff[30];
+    char isSafeChar[1];
+    char dumpBuff[60];
+
+    sprintf(contentLength, "%d", totalMessageBodySize);
+
+    _parser->send("AT+QLTS=1");
+    rtos::ThisThread::sleep_for(300ms);
+    if (!_parser->scanf("+QLTS: \"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c", timeBuff, timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, timeBuff+9, timeBuff+10, timeBuff+11, timeBuff+12, timeBuff+13, timeBuff+14, timeBuff+15, timeBuff+16, timeBuff+17, timeBuff+18, timeBuff+19))
+    {
+        status = -1;	
+    }
+
 
     // POST
-    _parser->send("AT+QHTTPPOST=%d,30,30", 458);
+    _parser->send("AT+QHTTPPOST=%d,60,60", totalSize);
     rtos::ThisThread::sleep_for(2s);
-    if (!_parser->recv("CONNECT:")) 
+    if (!_parser->recv("CONNECT")) 
 	{
 		status = -1;	
 	}
     rtos::ThisThread::sleep_for(1s);
 
-    _parser->write(header, 193);
-    _parser->write(postbody, 265);
-    // _parser->send("{\"uniqueId\":\"0577916f-dfbe-4bb3-948d-f04b7e370953\",");
-    // _parser->send("\"deviceType_id\":\"6071f29e093b210013071ba8\",");
-    // _parser->send("\"metrics\":{\"Temp and Humidity\":[{\"startTimestamp\":\"2021-01-01T00:00:00Z\",");
-    // _parser->send("\"endTimestamp\":\"2021-01-01T00:01:00Z\",");
-    // _parser->send("\"humidity\":[10,20,30,40],\"temperature\":[100,200,300,400]}]}}");
+    // _parser->write(header, 193);
+    // _parser->write(postbody, 221);
 
-    // _parser->send("{\"uniqueId\":\"0577916f-dfbe-4bb3-948d-f04b7e370953\",");
-    // _parser->send("\"deviceType_id\":\"6071f29e093b210013071ba8\",\"metrics\"");
-    // _parser->send(":{\"Temp and Humidity\":[{\"startTimestamp\":\"2021-01-01T00:00:00Z\",");
-    // _parser->send("\"humidity\":[10,20,30,40],\"temperature\":[100,200,300,400]}]}}");
+    _parser->write("POST /v0/metrics?info=true HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: keep-alive\r\nContent-Type: application/json\r\nContent-Length: ", headerSize[0]);
+    _parser->write(contentLength, headerSize[1]);
+    _parser->write("\r\n\r\n", headerSize[2]);
+
+    _parser->write("{\"uniqueId\":\"d971240b-3e55-45d4-9973-d8419e1186d5\",\"deviceType_id\":\"608937e2cd4daf00130302b0\",\"metrics\":{\"0\":[{\"0\":[\"", messageBodySize[0]);
+    _parser->write(stateStr, messageBodySize[1]);
+    _parser->write("\"],\"t\":[\"", messageBodySize[2]);
+    _parser->write(timeBuff , 4);
+    _parser->write("-", 1);
+    _parser->write(timeBuff+(5*sizeof(char)), 2);
+    _parser->write("-", 1);
+    _parser->write(timeBuff+(8*sizeof(char)), 2);
+    _parser->write("T", 1);
+    _parser->write(timeBuff+(11*sizeof(char)), 2);
+    _parser->write(":", 1);
+    _parser->write(timeBuff+(14*sizeof(char)), 2);
+    _parser->write(":", 1);
+    _parser->write(timeBuff+(17*sizeof(char)), 2);
+    _parser->write("Z", 1);
+    _parser->write("\"]}],\"1\":[{\"0\":[", messageBodySize[4]);
+    _parser->write(lat, messageBodySize[5]);
+    _parser->write("],\"1\":[", messageBodySize[6]);
+    _parser->write(lon, messageBodySize[7]);
+    _parser->write("],\"t\":[\"", messageBodySize[8]);
+    _parser->write(timeBuff , 4);
+    _parser->write("-", 1);
+    _parser->write(timeBuff+(5*sizeof(char)), 2);
+    _parser->write("-", 1);
+    _parser->write(timeBuff+(8*sizeof(char)), 2);
+    _parser->write("T", 1);
+    _parser->write(timeBuff+(11*sizeof(char)), 2);
+    _parser->write(":", 1);
+    _parser->write(timeBuff+(14*sizeof(char)), 2);
+    _parser->write(":", 1);
+    _parser->write(timeBuff+(17*sizeof(char)), 2);
+    _parser->write("Z", 1);
+    _parser->write("\"]}]}}", messageBodySize[10]);
 
     rtos::ThisThread::sleep_for(2s);
     if (!_parser->recv("OK"))
@@ -742,16 +814,36 @@ int QUECTEL_BG77::send_http_post(){
     // get response and wait up to 20s for the HTTP session to close
     _parser->send("AT+QHTTPREAD=20");
     rtos::ThisThread::sleep_for(20s);
+    if (!_parser->recv("CONNECT"))
+	{
+		status = -1;	
+	}
+    if (!_parser->scanf("{\"info\":[{\"src\":{\"asset_id\":\"60893737cd4daf00130302ae\"},\"isSafe\":%c", isSafeChar))
+    {
+        status = -1;	
+    }
+
+    _parser->write("AT+ ", 4);
+    // _parser->write("isSafeChar:\r\n", 13);
+    _parser->write(isSafeChar, 1);
+    _parser->write("\r\n", 2);
+
     if (!_parser->recv("+QHTTPREAD: 0"))
 	{
 		status = -1;	
 	}
 
-    rtos::ThisThread::sleep_for(5s);
-
+    
 
     mutex_unlock();
-	return (status);
+
+    rtos::ThisThread::sleep_for(1s);
+
+    if(isSafeChar[0] == 't'){
+        return true;
+    } else {
+        return false;
+    }
 }
 
 int QUECTEL_BG77::cpsms()
@@ -764,7 +856,7 @@ int QUECTEL_BG77::cpsms()
 		status = -1;	
 	}
     rtos::ThisThread::sleep_for(300ms);
-
+    
 	_parser->send("AT+QPSMS=1");
 	if (!_parser->recv("OK"))
 	{
