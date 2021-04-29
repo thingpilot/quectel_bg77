@@ -754,7 +754,7 @@ bool QUECTEL_BG77::send_http_post(const char *lat, uint8_t latLen, const char *l
 
 
     // POST
-    _parser->send("AT+QHTTPPOST=%d,60,60", totalSize);
+    _parser->send("AT+QHTTPPOST=%d,20,20", totalSize);
     rtos::ThisThread::sleep_for(2s);
     if (!_parser->recv("CONNECT")) 
 	{
@@ -812,8 +812,8 @@ bool QUECTEL_BG77::send_http_post(const char *lat, uint8_t latLen, const char *l
     rtos::ThisThread::sleep_for(5s);
 
     // get response and wait up to 20s for the HTTP session to close
-    _parser->send("AT+QHTTPREAD=20");
-    rtos::ThisThread::sleep_for(20s);
+    _parser->send("AT+QHTTPREAD=5");
+    rtos::ThisThread::sleep_for(5s);
     if (!_parser->recv("CONNECT"))
 	{
 		status = -1;	
@@ -832,8 +832,6 @@ bool QUECTEL_BG77::send_http_post(const char *lat, uint8_t latLen, const char *l
 	{
 		status = -1;	
 	}
-
-    
 
     mutex_unlock();
 
