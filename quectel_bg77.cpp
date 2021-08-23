@@ -11,19 +11,17 @@
 /** Includes */
 #include "quectel_bg77.h"
 #include <cstdint>
-#include <string>
+//#include <string>
 #include <sstream>  
 
-
-//TODO: pdp defined by the user
- 
 QUECTEL_BG77::QUECTEL_BG77(PinName txu, PinName rxu, PinName pwkey, PinName ctl1, PinName ctl2,  
             PinName ctl3, int baud) :_pwkey(pwkey), _ctl1(ctl1, 1), _ctl2(ctl2, 1), _ctl3(ctl3, 0) //001 lte //100 nbiot
 {
 	_serial = new BufferedSerial(txu, rxu, baud);
 	_parser = new ATCmdParser(_serial);
-	_parser->set_delimiter("\r\n");
-	_parser->set_timeout(600); //TODO: check with ~300
+	_parser->set_delimiter("\r");
+	_parser->set_timeout(12500); //TODO: check with ~300
+    _parser->flush();
     _modem_on();
 }
 
@@ -36,13 +34,28 @@ QUECTEL_BG77::~QUECTEL_BG77()
 
 void QUECTEL_BG77::_modem_on()
 {
-    _pwkey = 0;
-    rtos::ThisThread::sleep_for(30ms);
-    _pwkey = 1;
-    rtos::ThisThread::sleep_for(600ms);
-    _pwkey = 0;
-    rtos::ThisThread::sleep_for(300ms);
-  
+    char buff[64];
+
+    mutex_lock();
+
+    _parser->set_timeout(1000);
+    _parser->send("AT");
+	if (!_parser->recv("OK"))
+	{
+        // Modem is not already on, so power key it
+        _pwkey = 0;
+        rtos::ThisThread::sleep_for(30ms);
+        _pwkey = 1;
+        rtos::ThisThread::sleep_for(600ms);
+        _pwkey = 0;
+        rtos::ThisThread::sleep_for(300ms);
+
+        // rtos::ThisThread::sleep_for(6500ms);
+        //_parser->recv("APP RDY");
+    }
+    _parser->set_timeout(125000);
+
+    mutex_unlock();
 }
 
 void QUECTEL_BG77::mutex_lock()
@@ -54,6 +67,79 @@ void QUECTEL_BG77::mutex_lock()
 void QUECTEL_BG77::mutex_unlock()
 {
 	_smutex.unlock();
+}
+
+int QUECTEL_BG77::tcpip_startup(const char *apn)
+{
+    int status = 0;
+    //int success = 0;
+    char cpinBuff[16];
+    int cereg_n = -1;
+    int ceregStatus = -1;
+    char qiBuff[64];
+
+    //mutex_lock();
+    if (at() != QUECTEL_BG77::Q_SUCCESS)
+    {
+	    return QUECTEL_BG77::Q_FAILURE;
+    }
+    if (cfun(1) != QUECTEL_BG77::Q_SUCCESS)
+    {
+	    return QUECTEL_BG77::Q_FAILURE;
+    }
+    if (band_config() != QUECTEL_BG77::Q_SUCCESS)
+    {
+        return QUECTEL_BG77::Q_FAILURE;
+    }
+
+    if (query_sim() != QUECTEL_BG77::Q_SUCCESS )
+    {
+        return QUECTEL_BG77::Q_FAILURE;
+    }
+
+    if (csq(apn) != QUECTEL_BG77::Q_SUCCESS)
+    {
+        return QUECTEL_BG77::Q_FAILURE;
+    }
+    
+    if (activate_pdp() != Q_SUCCESS)
+    {
+        return QUECTEL_BG77::Q_FAILURE;
+    }
+
+    //TODO: Ask Rich if he wants the below unused code
+    // syncronise the tim with NTP server
+    // if(status == 0){
+    //     _parser->send("AT+QNTP=1,\"136.243.177.133\",123 ");
+    //     rtos::ThisThread::sleep_for(300ms);
+    //     if (!_parser->recv("+QNTP:"))
+    //     {
+    //         status = -1;	
+    //     }
+    // }
+
+    // _parser->send("AT+QLTS=2");
+    // if (!_parser->recv("OK"))
+    // {
+    //     status = -1;	
+    // }
+
+
+    // if fail, wait 150s and try again
+        // if fails to activate a second time, return fail
+
+    // try to open a connection with QIOPEN up to 5 times with 3s delay
+
+    // if fail, deactivate PDP context with QIDEACT
+        // return fail
+
+    // try sending some data with QISEND
+
+    // query ACK with QISEND every 5s up to 24 times
+        // if no ack, return fail
+
+    mutex_unlock();
+	return (status);
 }
 
 int QUECTEL_BG77::at()
@@ -84,7 +170,7 @@ int QUECTEL_BG77::cfun(int mode)
 }
 
 
-int QUECTEL_BG77::band_config(QUECTEL_BG77::e_band band, uint64_t bands)
+int QUECTEL_BG77::band_config()
 {
     int  status = -1;
     char buffer[100];
@@ -93,89 +179,26 @@ int QUECTEL_BG77::band_config(QUECTEL_BG77::e_band band, uint64_t bands)
     //Query Network Information
     mutex_lock();
     
-    // _parser->send("AT+QNWINFO");
-    // rtos::ThisThread::sleep_for(10s);
-    // _parser->recv(buffer, size);
-    // printf("QUERY RESP: %s", buffer);
-    // //NBIOT ONLY
-
-    // if (bands == 18)
-    // {
-    //      _parser->send("AT+QCFG=\"band\",0,0,0x1000000000000000000000"); //band 20 we can have
-    // }
     _parser->send("AT+QCFG=\"band\",0,0,0x80000"); //band 20 we can have 
     if(!_parser->recv("OK"))
     {
-        status = -1;
+        return Q_FAILURE;
     }
-    rtos::ThisThread::sleep_for(10s);
+
+    _parser->send("AT+QCFG=\"nb1/bandprior\",14"); //band 20
+    if(!_parser->recv("OK"))
+    {
+        return Q_FAILURE;
+    }
 
     _parser->send("AT+QCFG=\"iotopmode\",1,1"); //configure network to be searched/ nbiot, take effect immediately
     if(!_parser->recv("OK"))
     {
-        status = -1;
+         return Q_FAILURE;
     }
-
-    _parser->send("AT+QCFG=\"apn/display\",1");//ffect immediately
-    if(!_parser->recv("OK"))
-    {
-        status = -1;
-    }
-    
-    // switch(band)
-    // {
-    //     case GSM:
-    //         printf("Switching to GSM..\r\n");
-    //         // Do not change anything  its GSM1800 + GSM1900
-    //         _parser->send("(AT+QCFG=\"band\",0,0,0");
-    //         if(!_parser->recv("OK"))
-    //         {
-    //             status = -1;
-    //         }
-    //     case GPRS:
-    //         printf("Switching to GPRS..\r\n");
-    //     case LTE:
-    //         printf("Switching to LTE..\r\n");
-    //         status = scan_sequence(LTE);
-    //         if (status != 0)
-    //         {
-    //             return (status);
-    //         }
-    //         // LTE only scan
-    //         qcfg_configuration("nwscanmode", 0); //for lte is 3
-
-    //         // Search only CAT-M Networks
-    //         qcfg_configuration("iotopmode", 2); //for emtc/lte is 0
-    //         // Set CATM1 Bands to LTE Band 20
-    //         // _parser->send("AT+QCFG=\"band\",0,80000,0");
-    //         // if(!_parser->recv("OK"))
-    //         // {
-    //         //     return (-1);
-    //         // }
-    //         // qcfg_configuration("roamservice", 255);
-    //         // qcfg_configuration("servicedomain", 2);
-
-    //     case NBIoT:
-    //         printf("Switching to NBIoT..\r\n");
-
-    //         _parser->send("AT+QCFG=\"iotopmode\",1,1"); //configure network to be searched/ nbiot, take effect immediately
-    //         if(!_parser->recv("OK"))
-    //         {
-    //             status = -1;
-    //         }
-    //         rtos::ThisThread::sleep_for(5s);
-    //         _parser->send("AT+QCFG=\"band\",0,0,0x80000"); //band 20 we can have 
-    //         if(!_parser->recv("OK"))
-    //         {
-    //             status = -1;
-    //         }
-    //         rtos::ThisThread::sleep_for(5s);
-    //     default:
-    //         break;
-    // }
 
     mutex_unlock();
-    return (status);
+    return Q_SUCCESS;
 }
 int QUECTEL_BG77::qnwinfo()
 {
@@ -264,51 +287,52 @@ int QUECTEL_BG77::cgreg()
 }
 
 
-int QUECTEL_BG77::csq(int &signal_strength, int &quality)
+int QUECTEL_BG77::csq(const char *apn)
 {
     int status = 0;
+    int cereg_n = -1;
+    int ceregStatus = -1;
     mutex_lock();
-    _parser->send("AT+QCSQ");
-    if(!_parser->recv("+CSQ: %d,%d", &signal_strength, &quality))
-    {
-        status = -1;
-    }
-    rtos::ThisThread::sleep_for(3s);
-    // _parser->send("AT+QCSQ=?");
-    // if(!_parser->recv("+CSQ: %d,%d", &signal_strength, &quality))
-    // {
-    //     status = -1;
-    // }
-    _parser->send("AT+CSQ");
-    if(!_parser->recv("+CSQ: %d,%d", &signal_strength, &quality))
-    {
-        status = -1;
-    }
-    // rtos::ThisThread::sleep_for(10s);
-    // _parser->send("AT+QICSGP=1");
-    // if(!_parser->recv("+CSQ: %d,%d", &signal_strength, &quality))
-    // {
-    //     status = -1;
-    // }
-    // rtos::ThisThread::sleep_for(10s);
 
-    // _parser->send("AT+QIACT=?");
-    // if(!_parser->recv("+CSQ: %d,%d", &signal_strength, &quality))
-    // {
-    //     status = -1;
-    // }
-    // _parser->send("AT+QIACT?");
-    // if(!_parser->recv("+CSQ: %d,%d", &signal_strength, &quality))
-    // {
-    //     status = -1;
-    // }
-    rtos::ThisThread::sleep_for(3s);
-    // _parser->send("AT+QIACT=1");
-    // if(!_parser->recv("+CSQ: %d,%d", &signal_strength, &quality))
-    // {
-    //     status = -1;
-    // }
-    // rtos::ThisThread::sleep_for(150s);
+    //configure PDP context with QICSGP (vodafone APN)
+    _parser->send("AT+QICSGP=1,1,\"%s\"",apn);
+    rtos::ThisThread::sleep_for(300ms);
+    if (!_parser->recv("OK"))
+    {
+        return Q_FAILURE;
+    }
+
+    _parser->set_timeout(5000);
+
+    for (int i = 0; i < 10; i++)
+    {
+        status = 0;
+        _parser->send("AT+QCSQ");
+        if (!(_parser->recv("+QCSQ: \"NBIoT\"") && _parser->recv("OK")))
+        {
+            continue;
+            status = -1;	
+        }
+        _parser->send("AT+QNWINFO");
+        if (!(_parser->recv("+QNWINFO: \"NBIoT\"") && _parser->recv("OK")))
+        {
+            continue;
+            status = -1;	
+        }
+        _parser->send("AT+CEREG?");
+        _parser->recv("+CEREG: %d,%d", &cereg_n, &ceregStatus);
+        _parser->recv("OK");
+        if(!(ceregStatus == 5))
+        {
+            continue;   
+		    status = -1;
+	    }
+
+        if (status == 0){
+            break;
+        }
+    }
+
     mutex_unlock();
     return (status);
 }
@@ -342,6 +366,29 @@ int QUECTEL_BG77::manufacturer_id()
     mutex_unlock();
 	return (status);
 }
+
+
+int QUECTEL_BG77::firmware_ver()
+{   
+    int     status = -1;
+    char    *received_data;
+    int     str_size; 
+    mutex_lock();
+	_parser->send("AT+QGMR");
+    _parser->read(received_data, str_size);
+    rtos::ThisThread::sleep_for(500ms);
+    mutex_unlock();
+	return (0);
+}
+
+int QUECTEL_BG77::update_firmware(const char *url_bin_file){
+    mutex_lock();
+    //https://testing.thingpilot.com/quectel/bg77/BG77LAR02A02_01.004.01.004-BG77LAR02A04_01.004.01.004.bin
+	_parser->send("AT+QFOTADL=%s", url_bin_file);
+    mutex_unlock();
+    return (0);
+}
+
 /* Note: the IMEI can be used to identify ME
 */
 int QUECTEL_BG77::imei()
@@ -382,28 +429,20 @@ int QUECTEL_BG77::imsi()
 }
 
 
-int QUECTEL_BG77::enter_pin(int pin)
+int QUECTEL_BG77::query_sim()
 {
 
     int status = 0;
     mutex_lock();
     _parser->send("AT+CPIN?");
+    ThisThread::sleep_for(300ms);
+    if(!(_parser->recv("+CPIN: READY") && _parser->recv("OK")))
+    {
+        return Q_FAILURE;
+    }
     
-    // if (_parser->recv("+CME ERROR: SIM not inserted"))
-	// {
-    //     printf("SIM NOT INSERTED\n");
-	// 	status = -1;	
-	// }
-    // if (!_parser->recv("OK\n+CPIN: READY"))
-    // {
-    //     _parser->send("AT+CPIN=%d", pin);
-    //     if (!_parser->recv("OK\n+CPIN: READY"))
-    //     {
-    //         status = -1;	
-    //     }
-    // }
     mutex_unlock();
-	return (status);
+	return Q_SUCCESS;
 }
 
 //TODO check AT+CPSMS=1,,,... or AT+QPSMS
@@ -464,7 +503,7 @@ int QUECTEL_BG77::auto_zone_update()
 {
     int status = 0;
     mutex_lock();
-	_parser->send("AT+CTZU=1");
+	_parser->send("AT+CTZU=3"); //TODO: CHECK the number
 	if (!_parser->recv("OK"))
 	{
 		status = -1;	
@@ -512,17 +551,152 @@ int QUECTEL_BG77::response_http_header()
 	return (status);
 }
 
-int QUECTEL_BG77::set_http_url()
+int QUECTEL_BG77::set_http_url(const char *url_m)
 {
+    //const char url[] = "https://api.testing.thingpilot.com/v0/metrics";
     int status = 0;
     mutex_lock();
-	_parser->send("AT+QHTTPURL=43,80"); //TODO: change url length , timeout, url can be inputed aafter this
+
+    _parser->send("AT+QHTTPCFG=\"requestheader\",1"); // set customisation of header
 	if (!_parser->recv("OK"))
+	{
+		status = -1;	
+	}
+
+	_parser->send("AT+QHTTPURL=%d,80", strlen(url_m)); //url size //TODO: change url length , timeout, url can be inputed aafter this
+    //rtos::ThisThread::sleep_for(500ms);
+	if (!_parser->recv("CONNECT"))
+	{
+		status = -1;	
+	}
+    //clearMessageBuff();
+    //messageBuff = 'https://api.testing.thingpilot.com/v0/metrics?info=true';
+    _parser->send(url_m);
+    if (!_parser->recv("OK"))
 	{
 		status = -1;	
 	}
     mutex_unlock();
 	return (status);
+}
+
+bool QUECTEL_BG77::send_http_post(const char *lat, uint8_t latLen, const char *lon, uint8_t lonLen, const char *stateStr){
+    int status = 0;
+    mutex_lock();
+    //const char header[] = "POST /v0/metrics?info=true HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: keep-alive\r\nContent-Type: application/json\r\nContent-Length: 221\r\n\r\n";
+    //const char postbody[] = "{\"uniqueId\":\"d971240b-3e55-45d4-9973-d8419e1186d5\",\"deviceType_id\":\"608937e2cd4daf00130302b0\",\"metrics\":{\"0\":[{\"0\":[\"IS\"],\"t\":[\"2021-01-01T00:00:00Z\"]}],\"1\":[{\"0\":[51.12345],\"1\":[-0.92345],\"t\":[\"2021-01-01T00:00:00Z\"]}]}}";
+    int messageBodySize[] = {117, 2, 9, 20, 16, latLen, 7, lonLen, 8, 20, 6};
+    int headerSize[] = {186, 3, 4};
+
+    int totalHeaderSize = headerSize[0] + headerSize[1] + headerSize[2];
+
+    int totalMessageBodySize = 0;
+
+    for(int ii = 0; ii < 11; ii++)
+    {
+        totalMessageBodySize += messageBodySize[ii];
+    }
+
+    int totalSize = totalHeaderSize + totalMessageBodySize;
+    char contentLength[4];
+
+    char timeBuff[30];
+    char isSafeChar[1];
+    char dumpBuff[60];
+
+    sprintf(contentLength, "%d", totalMessageBodySize); 
+
+    _parser->send("AT+QLTS=1");
+    //rtos::ThisThread::sleep_for(300ms);
+    if (!_parser->scanf("+QLTS: \"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c", timeBuff, timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, timeBuff+9, timeBuff+10, timeBuff+11, timeBuff+12, timeBuff+13, timeBuff+14, timeBuff+15, timeBuff+16, timeBuff+17, timeBuff+18, timeBuff+19))
+    {
+        status = -1;
+        //return status;
+    }
+    // POST
+    _parser->send("AT+QHTTPPOST=%d,20,20", totalSize);
+    //rtos::ThisThread::sleep_for(2s);
+    if (!_parser->recv("CONNECT")) 
+	{
+		status = -1;	
+	}
+
+    //rtos::ThisThread::sleep_for(1s);
+    // _parser->write(header, 193);
+    // _parser->write(postbody, 221);
+
+    _parser->write("POST /v0/metrics?info=true HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: keep-alive\r\nContent-Type: application/json\r\nContent-Length: ", headerSize[0]);
+    _parser->write(contentLength, headerSize[1]); //writes 3 bytes?
+    _parser->write("\r\n\r\n", headerSize[2]);
+
+    _parser->write("{\"uniqueId\":\"75ea3c6f-d2a9-4ae8-a6c4-43090df1662d\",\"deviceType_id\":\"608937e2cd4daf00130302b0\",\"metrics\":{\"0\":[{\"0\":[\"", messageBodySize[0]);
+    _parser->write(stateStr, messageBodySize[1]);
+    _parser->write("\"],\"t\":[\"", messageBodySize[2]);
+    _parser->write(timeBuff , 4);
+    _parser->write("-", 1);
+    _parser->write(timeBuff + (5*sizeof(char)), 2);
+    _parser->write("-", 1);
+    _parser->write(timeBuff + (8*sizeof(char)), 2);
+    _parser->write("T", 1);
+    _parser->write(timeBuff + (11*sizeof(char)), 2);
+    _parser->write(":", 1);
+    _parser->write(timeBuff+(14*sizeof(char)), 2);
+    _parser->write(":", 1);
+    _parser->write(timeBuff+(17*sizeof(char)), 2);
+    _parser->write("Z", 1);
+    _parser->write("\"]}],\"1\":[{\"0\":[", messageBodySize[4]);
+    _parser->write(lat, messageBodySize[5]);
+    _parser->write("],\"1\":[", messageBodySize[6]);
+    _parser->write(lon, messageBodySize[7]);
+    _parser->write("],\"t\":[\"", messageBodySize[8]);
+    _parser->write(timeBuff , 4);
+    _parser->write("-", 1);
+    _parser->write(timeBuff+(5*sizeof(char)), 2);
+    _parser->write("-", 1);
+    _parser->write(timeBuff+(8*sizeof(char)), 2);
+    _parser->write("T", 1);
+    _parser->write(timeBuff+(11*sizeof(char)), 2);
+    _parser->write(":", 1);
+    _parser->write(timeBuff+(14*sizeof(char)), 2);
+    _parser->write(":", 1);
+    _parser->write(timeBuff+(17*sizeof(char)), 2);
+    _parser->write("Z", 1);
+    _parser->write("\"]}]}}", messageBodySize[10]);
+
+    //rtos::ThisThread::sleep_for(2s);
+    if (!_parser->recv("+QHTTPPOST:"))
+	{
+		status = -1;	
+	}
+
+    //rtos::ThisThread::sleep_for(5s);
+    // get response and wait up to 20s for the HTTP session to close
+    _parser->send("AT+QHTTPREAD=5");
+    //rtos::ThisThread::sleep_for(5s);
+    if (!_parser->recv("CONNECT"))
+	{
+		status = -1;	
+	}
+
+    if (!_parser->scanf("{\"info\":[{\"src\":{\"asset_id\":\"60893746cd4daf00130302af\"},\"isSafe\":%c", isSafeChar))
+    {
+        status = -1;	
+    }
+
+    if (!_parser->recv("+QHTTPREAD: 0"))
+	{
+		status = -1;	
+	}
+
+    mutex_unlock();
+
+    //rtos::ThisThread::sleep_for(1s);
+
+    if(isSafeChar[0] == 't'){
+        return true;
+    } else {
+        return false;
+    }
 }
 
 int QUECTEL_BG77::cpsms()
@@ -664,6 +838,26 @@ int QUECTEL_BG77::define_pdp()
 }
 
 
+int QUECTEL_BG77::activate_pdp()
+{
+    char qiBuff[64];
+    mutex_lock();
+
+    _parser->set_timeout(125000);
+    _parser->send("AT+QIACT=1");
+    //rtos::ThisThread::sleep_for(300ms);
+    if (!_parser->recv("OK"))
+    {
+        status = -1;	
+    }
+    // query the PDP context with QIACT?
+    _parser->send("AT+QIACT?");
+    _parser->recv("%s", qiBuff);
+
+    mutex_unlock();
+	return (status);
+}
+
 int QUECTEL_BG77::define_pdp_nbiot()
 {
     int status = 0;
@@ -675,18 +869,6 @@ int QUECTEL_BG77::define_pdp_nbiot()
 	{
 		status = -1;	
 	}
-    rtos::ThisThread::sleep_for(2s);
-
-    // _parser->send("AT+CGDCONT?");
-    // rtos::ThisThread::sleep_for(300ms);
-    // if (!_parser->recv("OK"))
-	// {
-	// 	status = -1;	
-	// }
-    // _parser->send("AT+CGACT=1,1 ");
-    // _parser->recv("%s", buffer);
-    // printf("%s", buffer);
-   
     mutex_unlock();
 	return (status);
 }

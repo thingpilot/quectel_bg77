@@ -67,6 +67,11 @@ class QUECTEL_BG77
             LTE     = 2,
             NBIoT   = 3
         };
+        enum 
+        {
+            Q_SUCCESS = 0,
+            Q_FAILURE = -1
+        };
 
 		/** Constructor. Instantiates an ATCmdParser object
 		    on the heap for comms between microcontroller and modem
@@ -96,6 +101,10 @@ class QUECTEL_BG77
          */
         void mutex_unlock();
 
+        /** 
+         */
+        int tcpip_startup(const char *apn);
+
 		/** Send "AT" command
             @return Indicates success or failure 
          */
@@ -110,11 +119,10 @@ class QUECTEL_BG77
 
         /** Query network info and set band configuartion. Default value is LTE
             Configure RAT Searching Sequence, qcfg_configuration
-            
-            @param  Choose band GSM, LTE, NBIOT..
+        
             @return Indicates success or failure
          */
-        int band_config(e_band band = LTE,  uint64_t bands = 80000);
+        int band_config();
 
         /** Configure RAT Searching Sequence. (Translate:  Only scan for <scanseq> Networks)
             @param scanseq. <scanseq>       0: Automatic (eMTC -> NB-IoT -> GSM), 
@@ -164,7 +172,7 @@ class QUECTEL_BG77
             Value = 99 means Not known or not detectable.
             @return Indicates success or failure 
          */
-        int csq(int &signal_strength, int &quality);
+        int csq(const char *apn);
 
         /** Set Command Echo Mode to off, default to 1. Stops the module from echoes 
             chars received from terminal equipment.
@@ -193,7 +201,7 @@ class QUECTEL_BG77
             (U)SIM PUK, PH-SIM PIN, etc. 
             @return Indicates success or failure 
          */
-        int enter_pin(int pin);
+        int query_sim();
 
         /** Trigger the Module into power saving mode Immediately. TODO: AT+CPSMS Power Saving Mode Setting
             @param mode. <mode>     0: Enter PSM after T3324 expires (active timer), 
@@ -257,6 +265,8 @@ class QUECTEL_BG77
         /** Define pdb contex
          */
         int define_pdp();
+
+        int activate_pdp();
 
         /** Define pdb contex
         */
