@@ -185,6 +185,12 @@ class QUECTEL_BG77
          */
         int manufacturer_id();
 
+        /** get the firmware version
+        */
+        int firmware_ver();
+        int do_gps_now();
+        int enable_xtra();
+        int set_edrx_ts();
         /** This should return a 15 digit number called, IMEI number. 
             @return Indicates success or failure 
          */
@@ -241,7 +247,14 @@ class QUECTEL_BG77
         /** Set URL of HTTP(S) Server. 
             @return Indicates success or failure 
          */
-        int set_http_url();
+        int set_http_url(const char *url_m);
+
+        /** Sends the post to the server
+            @return true if safe, false if recovery needed
+        */
+        bool send_http_post(const char *lat, uint8_t latLen, const char *lon, uint8_t lonLen, const char *stateStr);
+
+        int update_firmware(const char *url_bin_file);
 	
  	/** Power saving mode Settings
          */
