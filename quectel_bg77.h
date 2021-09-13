@@ -1,7 +1,7 @@
 /** 
     This is a library for Quectel bg77. Cat M1/Cat NB2
     @file    quectel_bg77.h
-    @version 0.1.0
+    @version 0.2.0
     @author  Rafaella Neofytou
     @brief   Header file of the quectel bg77 driver module
              LTE BG77 Cat M1/NB2 Module
@@ -14,7 +14,7 @@
 /** Includes 
  */
 #include <mbed.h>
-#include "SerialStream.h"
+#include "Tformatter/tformatter.h"
 /**
    Communicating with Quectel according to the AT manual
    https://www.quectel.com/UploadImage/Downlad/Quectel_BG95&BG77_AT_Commands_Manual_V1.0.pdf
@@ -25,30 +25,13 @@
    QUECTEL_BG77 modem()
    int main(void)
    {
-        modem.echo_te_off();    // (optional)
-
-        int status;
-        int x = 2;
-     // Check module
         modem.at();             
         modem.manufacturer_id();
-        int signal_strength;
-        int quality;
-        //Configure module
-        modem.cfun(0);          // basic functionality for configuration
-        modem.band_config(QUECTEL_BG77::LTE); // choices between lte, nbiot for gb77
-        modem.cfun(1);          // Full functionality, enable radio
-        modem.enter_pin(1234);        // Enter SIM pin. 
-        modem.creg(x, status);  //get status, we want to see 5
-
    }
  
  */
 
- /** TODO List: 1) Error message handle (check AT+CMEE)
-                2) Configure the URC (received message) output port (check AT+QURCCFG)
-                3) Determine what happens when a msg arrives (RING URC is presented) (check AT+QCFG="urc/ri/ring")
-                4) HTTP post or MQTT conf. It's not the same as saran2 check diff
+ /** TODO List: 1) Error message handle
   */
 
 
@@ -56,17 +39,7 @@
  */ 
 class QUECTEL_BG77
 {
-
 	public:
-
-        /** Band Configurations */
-        enum e_band
-        {
-            GSM     = 0,
-            GPRS    = 1,
-            LTE     = 2,
-            NBIoT   = 3
-        };
         enum 
         {
             Q_SUCCESS = 0,
@@ -84,7 +57,7 @@ class QUECTEL_BG77
 		   @param gpio Pin connected to quectel GPIO1
 		   @param baud Baud rate for UART between MCU and quectel
 		 */  
-		QUECTEL_BG77(PinName txu, PinName rxu, PinName pwkey, PinName ctl1, PinName ctl2, PinName ctl3, int baud = 9600);
+		QUECTEL_BG77(PinName txu, PinName rxu, PinName pwkey, PinName ctl1, PinName ctl2, PinName ctl3, int baud = 115200);
 
 		/** Destructor for the Quactel class. Deletes the BufferedSerial (instead of UartDerial) and ATCmdParser
 		    objects from the heap to release unused memory
@@ -101,14 +74,34 @@ class QUECTEL_BG77
          */
         void mutex_unlock();
 
-        /** 
-         */
-        int tcpip_startup(const char *apn);
-
 		/** Send "AT" command
             @return Indicates success or failure 
          */
 		int at();
+
+        /** Set Command Echo Mode to off, default to 1. Stops the module from echoes 
+            chars received from terminal equipment.
+         */
+        int echo_te_off();
+
+        /** Ping a url to check if connected
+         */
+        int ping(const char *url);
+
+        /** Send "ATE0" command. This should return Quactel BG77XX REVISION XXXX..
+            @note   If you see the echo of your AT commands, turn off the echo mode by issuing “ATE0”.
+            @return Indicates success or failure 
+         */
+        int manufacturer_id();
+
+        /** Current firmware version
+         *  @return firmware version
+         */
+        int firmware_ver();
+
+        /** Update to the latest firmware
+         */
+        int update_firmware(const char *url_bin_file);
 
         /** Set UE(user equipment) functionality
             @param mode. <fun>  0: Minimum functionality, 
@@ -147,24 +140,10 @@ class QUECTEL_BG77
          */
         int reset_band_config();
 
-        /**** Network Service Commands. Check for network registration, operator selection, signal quality ***/
-
         /** Network Registration Status. (Get connection status)
-            @param status       0 Not registered. MT is not currently searching an operator to register to.
-                                1 Registered, home network
-                                2 Not registered, but MT is currently trying to attach the network or searching an operator to register to.
-                                3 Registration denied
-                                4 Unknown
-                                5 Registered, roaming
-
-            @param act          0 GSM
-                                8 eMTC
-                                9 NB-IoT
-
             @return Indicates success or failure 
          */
-        int creg(int &status, int &act);
-
+        int creg();
 
         /** Csq return the 
             @param &signal_strength, rssi. Value = 2-31 for -109 to -51 dBm (linear).  
@@ -174,23 +153,11 @@ class QUECTEL_BG77
          */
         int csq(const char *apn);
 
-        /** Set Command Echo Mode to off, default to 1. Stops the module from echoes 
-            chars received from terminal equipment.
+        /** Query connection 
+         *  @return status. Returns true if connected to Nb-iot
          */
-        int echo_te_off();
+        int qnwinfo();
 
-        /** Send "ATE0" command. This should return Quactel BG77XX REVISION XXXX..
-            @note   If you see the echo of your AT commands, turn off the echo mode by issuing “ATE0”.
-            @return Indicates success or failure 
-         */
-        int manufacturer_id();
-
-        /** get the firmware version
-        */
-        int firmware_ver();
-        int do_gps_now();
-        int enable_xtra();
-        int set_edrx_ts();
         /** This should return a 15 digit number called, IMEI number. 
             @return Indicates success or failure 
          */
@@ -216,6 +183,10 @@ class QUECTEL_BG77
          */
         int enter_psm(int mode);
 
+        /** Exit power saving mode. If enabled it doesn't get a fix for location
+         */
+        int disable_psm();
+
         /** Operator Selection. 
            @param mode. <mode>      0: Automatic
                                     1: Manual TODO: do the manual selection
@@ -228,6 +199,11 @@ class QUECTEL_BG77
            @return Indicates success or failure 
          */
         int auto_zone_update();
+
+        /**  Configure TCP
+         */
+        int tcpip_startup(const char *apn);
+
 
         /** Configure Parameters for HTTP(S) Server. 
            @return Indicates success or failure 
@@ -252,11 +228,9 @@ class QUECTEL_BG77
         /** Sends the post to the server
             @return true if safe, false if recovery needed
         */
-        bool send_http_post(const char *lat, uint8_t latLen, const char *lon, uint8_t lonLen, const char *stateStr);
+        bool send_http_post(float lat, uint8_t latLen, float lon, uint8_t lonLen, const char *stateStr);
 
-        int update_firmware(const char *url_bin_file);
-	
- 	/** Power saving mode Settings
+ 	    /** Power saving mode Settings
          */
         int cpsms();
         
@@ -271,64 +245,58 @@ class QUECTEL_BG77
          */ 
         int cops_info();
 
-        /** Access technology 
-         */ 
-        int acces_tech_info();
-
-        /** Define pdb contex
+        /** Query the pdp connection. If not connected then connect 
          */
-        int define_pdp();
-
         int activate_pdp();
-
-        /** Define pdb contex
-        */
-        int cgreg();
-
-        int send_msg();
         
-        /** GNSS RELATED AT COMMANDS
-        */
-
-        int gnss_configuration();
-        int turn_on_gps();
-        int get_gps_pos();
-        int conf_nmea_output_port();
-        int query_satellite_system();
-        int nmea_configuration();
-
-        /*Nniot configuration*/
-        int disable_psm();
-        int nbiot_configuration();
+        /** TODO: delete?
+         */
         int define_pdp_nbiot();
-        int ping();
-        int qnwinfo();
-        
+
+        /** Sync date and time form the ntp server
+         */
+
+        char * sync_ntp();
+
+        /** Query location, get a fix
+         */
+        int parse_latlon(float &lon, float &lat);
+
+        /** Enable the extra mode. Download the xtra file.
+         */
+        int enable_xtra();
+
+        /** Query
+         */
+        int query_satellite_system();
+
+        /** 
+         */
+        int nmea_configuration();
 
     private:
         void _modem_on();
 
-
-    /**Digital inputs 
-     */
-    DigitalOut _pwkey; 
-    DigitalOut _ctl1;
-    DigitalOut _ctl2;
-    DigitalOut _ctl3;
-   
-
-	private:
-    BufferedSerial  *_serial;
+        /**Digital inputs 
+        */
+        DigitalOut _pwkey; 
+        DigitalOut _ctl1;
+        DigitalOut _ctl2;
+        DigitalOut _ctl3;
     
-    /*Parser for at commands*/
-    ATCmdParser *_parser;
 
-    BufferedSerial  *_gps_serial;
-    
-    /*Parser for at commands*/
-    ATCmdParser *_gps_parser;
-    /*Mutex or lock to enforce mutual exclusion*/
-	Mutex _smutex;
+        private:
+        BufferedSerial  *_serial;
+        
+        /*Parser for at commands*/
+        ATCmdParser *_parser;
+
+        BufferedSerial  *_gps_serial;
+        
+        /*Parser for at commands*/
+        ATCmdParser *_gps_parser;
+        /*Mutex or lock to enforce mutual exclusion*/
+        Mutex _smutex;
 
 };
 
