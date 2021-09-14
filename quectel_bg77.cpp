@@ -487,40 +487,27 @@ int QUECTEL_BG77::set_http_url(const char *url_m)
 	return (status);
 }
 
-bool QUECTEL_BG77::send_http_post(float lat, uint8_t latLen, float lon, uint8_t lonLen, const char *stateStr)
+bool QUECTEL_BG77::send_http_post(const char* http_header, uint8_t *http_body, size_t body_len, const char *stateStr)
 {
     mutex_lock();
     int status = 0;
-    char *timeBuff;
-    timeBuff = sync_ntp();
+    char isSafeChar[1];
+    char contentLength[10];
+    sprintf(contentLength, "%d\r\n\r\n", body_len); 
 
-    uint8_t buffer[500]; //TODO: 
-    size_t buffer_len=0;
-    TFormatter tformatter;
-    tformatter.setup();
-    tformatter.serialise_main_cbor_object(2);
-    tformatter.add_metric0(lat, lon, timeBuff);
-    tformatter.get_serialised(buffer, buffer_len);
-
-    int headerSize[] = {186, 3, 4};
-    int totalHeaderSize = headerSize[0] + headerSize[1] + headerSize[2];
-    int totalSize = totalHeaderSize + buffer_len;
-    char contentLength[4];
-    char isSafeChar[1]; 
-   
-    sprintf(contentLength, "%d", buffer_len); 
+    int totalSize = strlen(http_header) + strlen(contentLength) + body_len;
+    
     _parser->send("AT+QHTTPPOST=%d,20,20", totalSize);
     if (!_parser->recv("CONNECT")) 
 	{
 		status = -1;	
 	}
-    _parser->write("POST /v0/metrics?info=true HTTP/1.1\r\nHost: api.testing.thingpilot.com\r\nAccept: */*\r\nUser-Agent: cav-bike-tracker\r\nConnection: keep-alive\r\nContent-Type: application/cbor\r\nContent-Length: ", headerSize[0]);
-    _parser->write(contentLength, headerSize[1]); 
-    _parser->write("\r\n\r\n", headerSize[2]);
+    _parser->write(http_header, strlen(http_header));
+    _parser->write(contentLength, strlen(contentLength)); 
        
-    char c_buffer[buffer_len];
-    memcpy(c_buffer, buffer, buffer_len);
-    _parser->write(c_buffer, buffer_len);
+    char c_buffer[body_len]; //todo dynamic array
+    memcpy(c_buffer, http_body, body_len);
+    _parser->write(c_buffer, body_len);
 
     if (!_parser->recv("+QHTTPPOST:"))
 	{

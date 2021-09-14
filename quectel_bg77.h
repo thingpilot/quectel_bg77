@@ -228,7 +228,8 @@ class QUECTEL_BG77
         /** Sends the post to the server
             @return true if safe, false if recovery needed
         */
-        bool send_http_post(float lat, uint8_t latLen, float lon, uint8_t lonLen, const char *stateStr);
+        //bool send_http_post(float lat,  float lon,  const char *stateStr);
+        bool send_http_post(const char* http_header, uint8_t *http_body, size_t body_len, const char *stateStr);
 
  	    /** Power saving mode Settings
          */
