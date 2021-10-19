@@ -1,11 +1,14 @@
 /** 
     This is a library for Quectel bg77. Cat M1/Cat NB2
     @file    quectel_bg77.h
-    @version 0.2.0
+    @version 0.0.3
     @author  Rafaella Neofytou
     @brief   Header file of the quectel bg77 driver module
              LTE BG77 Cat M1/NB2 Module
  */
+
+#ifndef QUECTEL_BG77_H
+#define QUECTEL_BG77_H
 
 /** Define to prevent recursive inclusion
  */
@@ -14,7 +17,6 @@
 /** Includes 
  */
 #include <mbed.h>
-#include "Tformatter/tformatter.h"
 /**
    Communicating with Quectel according to the AT manual
    https://www.quectel.com/UploadImage/Downlad/Quectel_BG95&BG77_AT_Commands_Manual_V1.0.pdf
@@ -31,9 +33,10 @@
  
  */
 
- /** TODO List: 1) Error message handle
-  */
-
+/** TODO List: 1) Better error message handling (divide critical non critical?)
+               2) Add new feature by QUECTEL to detect jamming
+               3) XTRA enabled? battery?!
+ */
 
 /** Base class for the quectel module
  */ 
@@ -51,13 +54,10 @@ class QUECTEL_BG77
 		   
 		   @param txu Pin connected to quectel TXD (This is MCU TXU)
 		   @param rxu Pin connected to quectel RXD (This is MCU RXU)
-		   @param cts Pin connected to quectel CTS
-		   @param rst Pin connected to quectel RST
-		   @param vint Pin conencted to quectel VINT
-		   @param gpio Pin connected to quectel GPIO1
+		   @param pwkey Pin connected to quectel powerkey
 		   @param baud Baud rate for UART between MCU and quectel
 		 */  
-		QUECTEL_BG77(PinName txu, PinName rxu, PinName pwkey, PinName ctl1, PinName ctl2, PinName ctl3, int baud = 115200);
+		QUECTEL_BG77(PinName txu, PinName rxu, PinName pwkey, int baud = 115200);
 
 		/** Destructor for the Quactel class. Deletes the BufferedSerial (instead of UartDerial) and ATCmdParser
 		    objects from the heap to release unused memory
@@ -256,7 +256,6 @@ class QUECTEL_BG77
 
         /** Sync date and time form the ntp server
          */
-
         char * sync_ntp();
 
         /** Query location, get a fix
@@ -274,30 +273,28 @@ class QUECTEL_BG77
         /** 
          */
         int nmea_configuration();
-
-    private:
-        void _modem_on();
-
-        /**Digital inputs 
-        */
-        DigitalOut _pwkey; 
-        DigitalOut _ctl1;
-        DigitalOut _ctl2;
-        DigitalOut _ctl3;
-    
-
-        private:
-        BufferedSerial  *_serial;
         
+        /** Enable the modem with powerkey
+         */
+        void _modem_on();
+    private:
+        
+        /**Digital inputs*/
+        DigitalOut _pwkey; 
+        
+        /** Uart*/
+        BufferedSerial  *_serial;
+        BufferedSerial  *_gps_serial;
+
         /*Parser for at commands*/
         ATCmdParser *_parser;
 
-        BufferedSerial  *_gps_serial;
-        
         /*Parser for at commands*/
         ATCmdParser *_gps_parser;
+
         /*Mutex or lock to enforce mutual exclusion*/
         Mutex _smutex;
 
 };
 
+#endif

@@ -1,12 +1,11 @@
 /**
     @file       quectel_bg77.cpp
-    @version    0.2.0
+    @version    0.0.3
     @author     Rafaella Neofytou
     @brief      Cpp file of the quectel bg77 driver module
     @note       Chooses correct Sim Card for the application. 
-                BG77 supports: LTE Cat M1, LTE Cat NB2, integrated GNSS
+                BG77 supports:NBIOT && integrated GNSS
  */
-
 
 /** Includes */
 #include "quectel_bg77.h"
@@ -14,15 +13,14 @@
 #include <string>
 
 
-QUECTEL_BG77::QUECTEL_BG77(PinName txu, PinName rxu, PinName pwkey, PinName ctl1, PinName ctl2,  
-            PinName ctl3, int baud) :_pwkey(pwkey), _ctl1(ctl1, 1), _ctl2(ctl2, 1), _ctl3(ctl3, 0) //001 lte //100 nbiot
+QUECTEL_BG77::QUECTEL_BG77(PinName txu, PinName rxu, PinName pwkey, int baud) 
+                                :_pwkey(pwkey) 
 {
 	_serial = new BufferedSerial(txu, rxu, baud);
 	_parser = new ATCmdParser(_serial);
 	_parser->set_delimiter("\r");
-	_parser->set_timeout(12500); //TODO: check with ~300
+	_parser->set_timeout(12500); 
     _parser->flush();
-    _modem_on();
 }
 
 QUECTEL_BG77::~QUECTEL_BG77()
@@ -34,20 +32,18 @@ QUECTEL_BG77::~QUECTEL_BG77()
 void QUECTEL_BG77::_modem_on()
 {
     mutex_lock();
-    char buff[64];
     _parser->set_timeout(1000);
     _parser->send("AT");
 	if (!_parser->recv("OK"))
 	{
         // Modem is not already on, so power key it
         _pwkey = 0;
-        rtos::ThisThread::sleep_for(30ms);
+        ThisThread::sleep_for(30ms);
         _pwkey = 1;
-        rtos::ThisThread::sleep_for(600ms);
+        ThisThread::sleep_for(600ms);
         _pwkey = 0;
-        rtos::ThisThread::sleep_for(300ms);
+        ThisThread::sleep_for(300ms);
     }
-    _parser->set_timeout(125000);
     mutex_unlock();
 }
 
@@ -67,7 +63,6 @@ int QUECTEL_BG77::at()
     int status = 0;
     mutex_lock();
 	_parser->send("AT");
-    rtos::ThisThread::sleep_for(300ms);
 	if (!_parser->recv("OK"))
 	{
 		status = Q_FAILURE;	
@@ -83,7 +78,7 @@ int QUECTEL_BG77::echo_te_off()
 	_parser->send("ATE0"); 
 	if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;
 	}
     mutex_unlock();
 	return (status);
@@ -100,39 +95,47 @@ int QUECTEL_BG77::ping(const char *url)
 
 int QUECTEL_BG77::manufacturer_id()
 {
-    int     status = -1;
-    char    *received_data;
-    int     str_size; 
+    int status = -1;
     mutex_lock();
 	_parser->send("ATI");
-    _parser->read(received_data, str_size);
-    if (str_size > 0)
-    {
-        printf("%s", received_data);  
-        status = 0;
-    }
     mutex_unlock();
 	return (status);
 }
 
-
 int QUECTEL_BG77::firmware_ver()
 {   
-    int     status = 0;
+    int status = 0;
     mutex_lock();
-	_parser->send("AT+QGMR");
-    if (!_parser->recv("BG77LAR02A04_01.004.01.004"))
+    _parser->flush();
+	_parser->send("AT+GMR");
+    if (_parser->scanf("BG77LAR02A02") 
+        && _parser->recv("OK"))
     {
-        
-        status = Q_FAILURE;
+        status = 2;
+    }
+    _parser->send("AT+GMR");
+    if (_parser->recv("BG77LAR02A04") 
+        && _parser->recv("OK"))
+    {
+        status = 1;
     }
     mutex_unlock();
 	return status;
 }
 
-int QUECTEL_BG77::update_firmware(const char *url_bin_file){
+int QUECTEL_BG77::update_firmware(const char *url_bin_file)
+{
     mutex_lock();
+    uint8_t error_code = -1;
 	_parser->send("AT+QFOTADL=%s", url_bin_file);
+    while(!_parser->recv("+QIND: \"FOTA\",\"HTTPEND\",%d",error_code))
+    {
+        if(error_code != 0) //todo: works?
+        {
+            break;
+        }
+        _parser->flush();
+    }
     mutex_unlock();
     return (0);
 }
@@ -145,7 +148,7 @@ int QUECTEL_BG77::cfun(int mode)
 	_parser->send("AT+CFUN=%d,0", mode);
 	if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;	
 	}
     mutex_unlock();
 	return (status);
@@ -216,9 +219,8 @@ int QUECTEL_BG77::reset_band_config()
     rtos::ThisThread::sleep_for(300ms);
 	if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;	
 	}
-	
     mutex_unlock();
 	return (status);
 }
@@ -230,6 +232,7 @@ int QUECTEL_BG77::creg()
     _parser->send("AT+CEREG?");
     if (!_parser->recv("+CEREG: 0,5"))
     {
+        ThisThread::sleep_for(1s);
         _parser->send("AT+CEREG=1");
         if (!_parser->recv("OK"))
         {
@@ -257,7 +260,6 @@ int QUECTEL_BG77::csq(const char *apn)
     }
 
     _parser->set_timeout(5000);
-
     for (int i = 0; i < 10; i++)
     {
         status = 0;
@@ -269,7 +271,8 @@ int QUECTEL_BG77::csq(const char *apn)
         }
         status = qnwinfo();
         status = creg();
-        if (status == 0){
+        if (status == 0)
+        {
             break;
         }
     }
@@ -286,9 +289,8 @@ int QUECTEL_BG77::qnwinfo()
     _parser->send("AT+QNWINFO");
     if (!(_parser->recv("+QNWINFO: \"NBIoT\"") && _parser->recv("OK")))
     {
-        status = -1;	
+        status = Q_FAILURE;	
     }
-   
     mutex_unlock();
     return (status);
 }
@@ -310,13 +312,10 @@ int QUECTEL_BG77::imei()
 	return (status);
 }
 
-/*TODO: it can respond with error, get the error*/
 int QUECTEL_BG77::imsi()
 {
     int     status = 0;
     char    imsi[16]; //type string without double quotes
-    int     str_size; 
-
     mutex_lock();
 	_parser->send("AT+CIMI");
     if (_parser->recv("%15[^\n]\nOK\n", imsi))
@@ -337,20 +336,33 @@ int QUECTEL_BG77::query_sim()
         mutex_unlock();
         return Q_FAILURE;
     }
-    
     mutex_unlock();
 	return Q_SUCCESS;
 }
 
-//TODO check AT+CPSMS=1,,,... or AT+QPSMS
 int QUECTEL_BG77::enter_psm(int mode)
 {
     int status = 0;
     mutex_lock();
+	_parser->send("AT+QCFGEXT=\"attm2mfeat\"");
+	if (!_parser->recv("OK"))
+	{
+		status = Q_FAILURE;	
+	}
+    _parser->send("AT+CEDRXS=1,5,\"1111\"");
+	if (!_parser->recv("OK"))
+	{
+		status = Q_FAILURE;	
+	}
 	_parser->send("AT+QCFG=\"psm/enter\",%d", mode);
 	if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;	
+	}
+     _parser->send("AT+QSCLK = 1");
+	if (!_parser->recv("OK"))
+	{
+		status = Q_FAILURE;	
 	}
     mutex_unlock();
 	return (status);
@@ -382,10 +394,10 @@ int QUECTEL_BG77::auto_zone_update()
 {
     int status = 0;
     mutex_lock();
-	_parser->send("AT+CTZU=3"); //TODO: CHECK the number
+	_parser->send("AT+CTZU=3"); 
 	if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;
 	}
     mutex_unlock();
 	return (status);
@@ -396,33 +408,33 @@ int QUECTEL_BG77::tcpip_startup(const char *apn)
     int status = 0;
  
     _parser->send("AT+QGPSCFG=\"priority\",1");
-    rtos::ThisThread::sleep_for(1s);
+    rtos::ThisThread::sleep_for(100ms);
 	if (!_parser->recv("OK"))
     {
         status = -1;	
     }
 
-    if (at() != QUECTEL_BG77::Q_SUCCESS)
+    if (at() != Q_SUCCESS)
     {
-	    return QUECTEL_BG77::Q_FAILURE;
+	    return Q_FAILURE;
     }
-    if (cfun(1) != QUECTEL_BG77::Q_SUCCESS)
+    if (cfun(1) != Q_SUCCESS)
     {
-	    return QUECTEL_BG77::Q_FAILURE;
+	    return Q_FAILURE;
     }
     if (band_config() != QUECTEL_BG77::Q_SUCCESS)
     {
-        return QUECTEL_BG77::Q_FAILURE;
+        return Q_FAILURE;
     }
 
-    if (query_sim() != QUECTEL_BG77::Q_SUCCESS )
+    if (query_sim() != Q_SUCCESS )
     {
-        return QUECTEL_BG77::Q_FAILURE;
+        return Q_FAILURE;
     }
 
-    if (csq(apn) != QUECTEL_BG77::Q_SUCCESS)
+    if (csq(apn) !=Q_SUCCESS)
     {
-        return QUECTEL_BG77::Q_FAILURE;
+        return Q_FAILURE;
     }
 	return (status);
 }
@@ -434,7 +446,7 @@ int QUECTEL_BG77::configure_http_server()
 	_parser->send("AT+QHTTPCFG=\"contextid\",1");
 	if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;	
 	}
     mutex_unlock();
 	return (status);
@@ -447,7 +459,7 @@ int QUECTEL_BG77::request_http_header()
 	_parser->send("AT+QHTTPCFG=\"requestheader\",1");
 	if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;
 	}
     mutex_unlock();
 	return (status);
@@ -460,7 +472,7 @@ int QUECTEL_BG77::response_http_header()
 	_parser->send("AT+QHTTPCFG=\"responseheader\",1");
 	if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;	
 	}
     mutex_unlock();
 	return (status);
@@ -472,8 +484,6 @@ int QUECTEL_BG77::set_http_url(const char *url_m)
     mutex_lock();
     request_http_header();
     _parser->send("AT+QHTTPURL=%d,80",strlen(url_m));
-    _parser->send("AT+QHTTPURL=%d,80",strlen(url_m));
-
 	if (!_parser->recv("CONNECT"))
 	{
 		status = Q_FAILURE;	
@@ -490,72 +500,80 @@ int QUECTEL_BG77::set_http_url(const char *url_m)
 bool QUECTEL_BG77::send_http_post(const char* http_header, uint8_t *http_body, size_t body_len, const char *stateStr)
 {
     mutex_lock();
+    _parser->set_timeout(12500);
     int status = 0;
     char isSafeChar[1];
     char contentLength[10];
     sprintf(contentLength, "%d\r\n\r\n", body_len); 
 
-    int totalSize = strlen(http_header) + strlen(contentLength) + body_len;
+    int totalSize = strlen(http_header) + strlen(contentLength) + body_len; 
     
     _parser->send("AT+QHTTPPOST=%d,20,20", totalSize);
     if (!_parser->recv("CONNECT")) 
 	{
-		status = -1;	
+		status = Q_FAILURE;
 	}
     _parser->write(http_header, strlen(http_header));
     _parser->write(contentLength, strlen(contentLength)); 
        
-    char c_buffer[body_len]; //todo dynamic array
+    char c_buffer[body_len]; 
     memcpy(c_buffer, http_body, body_len);
     _parser->write(c_buffer, body_len);
 
     if (!_parser->recv("+QHTTPPOST:"))
 	{
-		status = -1;	
+		status = Q_FAILURE;	
 	}
+    
     // get response and wait up to 20s for the HTTP session to close
     _parser->send("AT+QHTTPREAD=5");
-    //rtos::ThisThread::sleep_for(5s);
     if (!_parser->recv("CONNECT"))
 	{
-		status = -1;	
+		status = Q_FAILURE;	
 	}
-
-    if (!_parser->scanf("{\"info\":[{\"src\":{\"asset_id\":\"60893746cd4daf00130302af\"},\"isSafe\":%c", isSafeChar))
+    
+    char * asset_id;
+    asset_id = (char *) malloc(26);
+    if (!_parser->scanf("{\"info\":[{\"src\":{\"asset_id\":\"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\"},\"isSafe\":%c", asset_id, 
+                                                                asset_id+1, asset_id+2, asset_id+3, asset_id+4, asset_id+5, asset_id+6,
+                                                                asset_id+7, asset_id+8, asset_id+9, asset_id+10, asset_id+11,
+                                                                asset_id+12, asset_id+13, asset_id+14, asset_id+15, asset_id+16, asset_id+17, asset_id+18,
+                                                                asset_id+19, asset_id+20, asset_id+21, asset_id+22, asset_id+23, isSafeChar))
     {
-        status = -1;	
+        status = Q_FAILURE; 
     }
-
+    free(asset_id);
     if (!_parser->recv("+QHTTPREAD: 0"))
 	{
-		status = -1;	
+        status = Q_FAILURE; //if for any reason it fails return that is safe
 	}
-   
+    
     mutex_unlock();
-    if(isSafeChar[0] == 't'){
+    if(isSafeChar[0] == 't' || status == -1) //if it failed assume its safe
+    {
         return true;
-    } else {
+    } 
+    else 
+    {
         return false;
     }
-    
 }
 
 int QUECTEL_BG77::cpsms()
 {
     int status = 0;
     mutex_lock();
-    _parser->send("AT+QPSMS=?");
+    _parser->send("AT+QIACT=1");
     if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;	
 	}
-    rtos::ThisThread::sleep_for(300ms);
-
+    rtos::ThisThread::sleep_for(100ms);
 	_parser->send("AT+QPSMS=1");
 	if (!_parser->recv("OK"))
 	{
-		status = -1;	
-	}
+		status = Q_FAILURE;
+    }
 
     mutex_unlock();
 	return (status);
@@ -565,20 +583,19 @@ int QUECTEL_BG77::turn_off_module()
 {
     int status = 0;
     mutex_lock();
-
     _parser->send("AT+QGPSEND");
     if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;	
 	}
-    rtos::ThisThread::sleep_for(300ms);
+    ThisThread::sleep_for(100ms);
 
     _parser->send("AT+QPOWD");
     if (!_parser->recv("OK"))
     {
-	status = -1;	
+	    status = Q_FAILURE;		
     }
-    rtos::ThisThread::sleep_for(300ms);
+    ThisThread::sleep_for(100ms);
     mutex_unlock();
     return (status);
 }
@@ -590,9 +607,8 @@ int QUECTEL_BG77::cops_info()
     _parser->send("AT+COPS=?");
 	if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;
 	}
-	
     mutex_unlock();
 	return (status);
 }
@@ -602,19 +618,18 @@ int QUECTEL_BG77::activate_pdp()
     int status = 0;
     char qiBuff[64];
     mutex_lock();
-
-    //_parser->set_timeout(60);
     _parser->send("AT+QIACT?");
     char qibuff[16];
     if(!((_parser->recv("+QIACT: 1,1,1,\"%13s\"", qibuff) 
         || _parser->recv("+QIACT: 1,1,1,\"%14s\"", qibuff)) 
-            && _parser->recv("OK")))
+            || _parser->recv("OK")))
     {
+        _parser->set_timeout(500);
         _parser->send("AT+QIACT=1");
         rtos::ThisThread::sleep_for(300ms);
         if (!_parser->recv("OK"))
         {
-            status = -1;	
+           status = Q_FAILURE;
         }
     }
 
@@ -629,7 +644,7 @@ int QUECTEL_BG77::define_pdp_nbiot()
     _parser->send("AT+CGDCONT=1,\"IP\",\"lpwa.vodafone.iot\"");
     if (!_parser->recv("OK"))
 	{
-		status = -1;	
+		status = Q_FAILURE;	
 	}
     mutex_unlock();
 	return (status);
@@ -639,27 +654,44 @@ char * QUECTEL_BG77::sync_ntp()
 {
     mutex_lock();
     int status = 0;
-    char * timeBuff;
     activate_pdp();
-    timeBuff = (char *) malloc(22); 
-    _parser->set_timeout(125000);
-    _parser->send("AT+QNTP=1,\"pool.ntp.org\",123,1");
-	if (!(_parser->recv("OK") &&
-     (_parser->scanf("+QNTP: %d,\"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\"", &status,
-     timeBuff, timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, 
-     timeBuff+9, timeBuff+10, timeBuff+11, timeBuff+12, timeBuff+13, timeBuff+14, timeBuff+15, timeBuff+16, 
-     timeBuff+17, timeBuff+18, timeBuff+19,timeBuff+20,timeBuff+21))))
+    _parser->flush();
+    _parser->set_timeout(60000); //important 
+    char * timeBuff;
+    timeBuff = (char *) malloc(24); 
+    for (int i = 0; i < 3; i++)
     {
-        _parser->send("AT+QLTS=1");
-        if (!_parser->scanf("+QLTS: \"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c", timeBuff, timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, timeBuff+9, timeBuff+10, timeBuff+11, timeBuff+12, timeBuff+13, timeBuff+14, timeBuff+15, timeBuff+16, timeBuff+17, timeBuff+18, timeBuff+19))
+        _parser->flush();
+        _parser->send("AT+QNTP=1,\"pool.ntp.org\",123,1");
+        
+        if ( (_parser->recv("\nOK\n") && (_parser->scanf("+QNTP: %d,\"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\"", &status, timeBuff, 
+            timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, 
+            timeBuff+9, timeBuff+10, timeBuff+11, timeBuff+12, timeBuff+13, timeBuff+14, timeBuff+15, timeBuff+16, 
+            timeBuff+17, timeBuff+18, timeBuff+19,timeBuff+20,timeBuff+21)) ))
         {
-            status = -1;
+            break; 
+        }
+        else
+        {
+            _parser->flush();
+            _parser->send("AT+QLTS=1");
+            if (_parser->scanf("+QLTS: \"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c", timeBuff, timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, 
+                                timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, timeBuff+9, timeBuff+10, timeBuff+11, timeBuff+12, timeBuff+13, timeBuff+14, 
+                                timeBuff+15, timeBuff+16, timeBuff+17, timeBuff+18, timeBuff+19))
+            {
+                status = -1;
+                sprintf (timeBuff,"%s", "2021/10/18,15:44:34+08");
+                break;
+            }
         }
     }
+    _parser->flush();
+    /** Format the time 
+     */
     timeBuff[4] = 45;
     timeBuff[7] = 45;
     timeBuff[10] = 84;
-    timeBuff[19] = 90; //i need the first 20 bytes
+    timeBuff[19] = 90; //I need the first 20 bytes
 
     mutex_unlock();
     return timeBuff;
@@ -668,30 +700,27 @@ char * QUECTEL_BG77::sync_ntp()
 int QUECTEL_BG77::parse_latlon(float &lon, float &lat)
 {
     int status = 0;
-    char buffer[100] = {0x01,0x01};
     mutex_lock();
-    _parser->set_timeout(12500);
-
+    _parser->set_timeout(5000);
     _parser->send("AT+QGPSCFG=\"priority\",0");
-   // rtos::ThisThread::sleep_for(1s);
 	if (!_parser->recv("OK"))
     {
-        status = -1;	
+       status = Q_FAILURE;
     }
     _parser->send("AT+QGPSCFG=\"gpsnmeatype\",31");
     if (!_parser->recv("OK"))
     {
-
+        status = Q_FAILURE;
     }
     _parser->send("AT+QGPSCFG=\"nmeasrc\",1");
     if (!_parser->recv("OK"))
     {
-
+        status = Q_FAILURE;
     }
     _parser->send("AT+QGPS=1");
     if (!_parser->recv("OK"))
     {
-        //retry?
+        status = Q_FAILURE;
     }
     char utc[12];
     char cog[7];
@@ -699,8 +728,8 @@ int QUECTEL_BG77::parse_latlon(float &lon, float &lat)
     float hdop, altitude, spkm, spkn;
     int fix, nsat, err;
     float latt,lonn;
-
-    for (int i = 0; i < 5; i++)
+    _parser->flush();
+    for (int i = 0; i < 6; i++)
     {
         _parser->send("AT+QGPSLOC=2");
         if((_parser->scanf("+QGPSLOC: %10s,%f,%f,%f,%f,%d,%4s,%f,%f,%6s,%d", 
@@ -712,16 +741,17 @@ int QUECTEL_BG77::parse_latlon(float &lon, float &lat)
             break;
         }
     }
+    
     //todo: xtra disabled?
     _parser->send("AT+QGPSXTRA=0");
     if (!_parser->recv("OK"))
     {
-        status = -1;
+        status = Q_FAILURE;
     }
     _parser->send("AT+QGPSEND");
     if (!_parser->recv("OK"))
     {
-        status = -1;
+       status = Q_FAILURE;
     }
     mutex_unlock();
 	return status;
@@ -750,13 +780,11 @@ int QUECTEL_BG77::enable_xtra()
 {
     int status = 0;
     mutex_lock();
-    _parser->set_timeout(12500);
+    _parser->set_timeout(5000);
     _parser->send("AT+QGPSXTRA?");
-    rtos::ThisThread::sleep_for(1s);
 	if (!_parser->recv("OK"))
     {
         _parser->send("AT+QGPSXTRA=1");
-        rtos::ThisThread::sleep_for(1s);
         if (!_parser->recv("OK"))
         {
             status = Q_FAILURE;	
@@ -765,14 +793,14 @@ int QUECTEL_BG77::enable_xtra()
     _parser->send("AT+QGPSCFG=\"xtra_info\"");
     if (!_parser->recv("OK"))
     {
-        status = -1;	
+        status = Q_FAILURE;	
     }
 
     _parser->send("AT+QGPSCFG=\"xtra_download\",1");
     rtos::ThisThread::sleep_for(1s);
 	if (!_parser->recv("OK"))
     {
-        status = -1;	
+        status = Q_FAILURE;
     }
     
     mutex_unlock();
