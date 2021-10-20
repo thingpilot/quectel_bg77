@@ -4,8 +4,9 @@
     @author     Rafaella Neofytou
     @brief      Cpp file of the quectel bg77 driver module
     @note       Chooses correct Sim Card for the application. 
-                BG77 supports:NBIOT && integrated GNSS
+                BG77 supports: NBIOT && integrated GNSS
  */
+
 
 /** Includes */
 #include "quectel_bg77.h"
@@ -106,7 +107,6 @@ int QUECTEL_BG77::firmware_ver()
 {   
     int status = 0;
     mutex_lock();
-    _parser->flush();
 	_parser->send("AT+GMR");
     if (_parser->scanf("BG77LAR02A02") 
         && _parser->recv("OK"))
@@ -126,15 +126,14 @@ int QUECTEL_BG77::firmware_ver()
 int QUECTEL_BG77::update_firmware(const char *url_bin_file)
 {
     mutex_lock();
-    uint8_t error_code = -1;
+    int error_code = -1;
 	_parser->send("AT+QFOTADL=%s", url_bin_file);
-    while(!_parser->recv("+QIND: \"FOTA\",\"HTTPEND\",%d",error_code))
+    while(!_parser->recv("+QIND: \"FOTA\",\"END\",%d",error_code))
     {
         if(error_code != 0) //todo: works?
         {
             break;
         }
-        _parser->flush();
     }
     mutex_unlock();
     return (0);
@@ -443,11 +442,11 @@ int QUECTEL_BG77::configure_http_server()
 {
     int status = 0;
     mutex_lock();
-	_parser->send("AT+QHTTPCFG=\"contextid\",1");
-	if (!_parser->recv("OK"))
-	{
-		status = Q_FAILURE;	
-	}
+	// _parser->send("AT+QHTTPCFG=\"contextid\",1");
+	// if (!_parser->recv("OK"))
+	// {
+	// 	status = Q_FAILURE;	
+	// }
     mutex_unlock();
 	return (status);
 }
@@ -524,7 +523,6 @@ bool QUECTEL_BG77::send_http_post(const char* http_header, uint8_t *http_body, s
 	{
 		status = Q_FAILURE;	
 	}
-    
     // get response and wait up to 20s for the HTTP session to close
     _parser->send("AT+QHTTPREAD=5");
     if (!_parser->recv("CONNECT"))
@@ -559,25 +557,7 @@ bool QUECTEL_BG77::send_http_post(const char* http_header, uint8_t *http_body, s
     }
 }
 
-int QUECTEL_BG77::cpsms()
-{
-    int status = 0;
-    mutex_lock();
-    _parser->send("AT+QIACT=1");
-    if (!_parser->recv("OK"))
-	{
-		status = Q_FAILURE;	
-	}
-    rtos::ThisThread::sleep_for(100ms);
-	_parser->send("AT+QPSMS=1");
-	if (!_parser->recv("OK"))
-	{
-		status = Q_FAILURE;
-    }
 
-    mutex_unlock();
-	return (status);
-}
 
 int QUECTEL_BG77::turn_off_module()
 {
@@ -618,19 +598,21 @@ int QUECTEL_BG77::activate_pdp()
     int status = 0;
     char qiBuff[64];
     mutex_lock();
+    _parser->set_timeout(1000);
     _parser->send("AT+QIACT?");
     char qibuff[16];
     if(!((_parser->recv("+QIACT: 1,1,1,\"%13s\"", qibuff) 
         || _parser->recv("+QIACT: 1,1,1,\"%14s\"", qibuff)) 
             || _parser->recv("OK")))
     {
-        _parser->set_timeout(500);
+        _parser->set_timeout(1000);
         _parser->send("AT+QIACT=1");
         rtos::ThisThread::sleep_for(300ms);
         if (!_parser->recv("OK"))
         {
            status = Q_FAILURE;
         }
+        
     }
 
     mutex_unlock();
@@ -655,37 +637,29 @@ char * QUECTEL_BG77::sync_ntp()
     mutex_lock();
     int status = 0;
     activate_pdp();
-    _parser->flush();
     _parser->set_timeout(60000); //important 
     char * timeBuff;
     timeBuff = (char *) malloc(24); 
-    for (int i = 0; i < 3; i++)
+    //todo: http://time.google.com/ 
+    _parser->send("AT+QNTP=1,\"pool.ntp.org\",123,1");
+    if (!( _parser->recv("OK") && _parser->scanf("+QNTP: %d,\"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\"", &status, timeBuff, 
+        timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, 
+        timeBuff+9, timeBuff+10, timeBuff+11, timeBuff+12, timeBuff+13, timeBuff+14, timeBuff+15, timeBuff+16, 
+        timeBuff+17, timeBuff+18, timeBuff+19,timeBuff+20,timeBuff+21)))
     {
-        _parser->flush();
-        _parser->send("AT+QNTP=1,\"pool.ntp.org\",123,1");
-        
-        if ( (_parser->recv("\nOK\n") && (_parser->scanf("+QNTP: %d,\"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\"", &status, timeBuff, 
-            timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, 
-            timeBuff+9, timeBuff+10, timeBuff+11, timeBuff+12, timeBuff+13, timeBuff+14, timeBuff+15, timeBuff+16, 
-            timeBuff+17, timeBuff+18, timeBuff+19,timeBuff+20,timeBuff+21)) ))
-        {
-            break; 
-        }
-        else
-        {
-            _parser->flush();
-            _parser->send("AT+QLTS=1");
-            if (_parser->scanf("+QLTS: \"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c", timeBuff, timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, 
-                                timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, timeBuff+9, timeBuff+10, timeBuff+11, timeBuff+12, timeBuff+13, timeBuff+14, 
-                                timeBuff+15, timeBuff+16, timeBuff+17, timeBuff+18, timeBuff+19))
-            {
-                status = -1;
-                sprintf (timeBuff,"%s", "2021/10/18,15:44:34+08");
-                break;
-            }
-        }
+        status = Q_FAILURE;
     }
-    _parser->flush();
+    if (status == 565 || status == -1)
+    {
+        _parser->send("AT+QLTS=1");
+        if (!(_parser->recv("OK") && _parser->scanf("+QLTS: \"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c", timeBuff, timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, 
+                            timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, timeBuff+9, timeBuff+10, timeBuff+11, timeBuff+12, timeBuff+13, timeBuff+14, 
+                            timeBuff+15, timeBuff+16, timeBuff+17, timeBuff+18, timeBuff+19)))
+        {
+            sprintf (timeBuff,"%s", "2021/10/18,15:44:34+08");
+        }
+
+    }
     /** Format the time 
      */
     timeBuff[4] = 45;
@@ -720,6 +694,7 @@ int QUECTEL_BG77::parse_latlon(float &lon, float &lat)
     _parser->send("AT+QGPS=1");
     if (!_parser->recv("OK"))
     {
+        _parser->send("AT+QGPS=1"); //retry?!
         status = Q_FAILURE;
     }
     char utc[12];
@@ -728,7 +703,7 @@ int QUECTEL_BG77::parse_latlon(float &lon, float &lat)
     float hdop, altitude, spkm, spkn;
     int fix, nsat, err;
     float latt,lonn;
-    _parser->flush();
+   
     for (int i = 0; i < 6; i++)
     {
         _parser->send("AT+QGPSLOC=2");

@@ -231,9 +231,6 @@ class QUECTEL_BG77
         //bool send_http_post(float lat,  float lon,  const char *stateStr);
         bool send_http_post(const char* http_header, uint8_t *http_body, size_t body_len, const char *stateStr);
 
- 	    /** Power saving mode Settings
-         */
-        int cpsms();
         
         /** Turn of the module.  This procedure is realized by letting the module log off from the network and allowing the software to
             enter a secure and safe data state before disconnecting the power supply
