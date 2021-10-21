@@ -130,10 +130,11 @@ int QUECTEL_BG77::update_firmware(const char *url_bin_file)
 	_parser->send("AT+QFOTADL=%s", url_bin_file);
     while(!_parser->recv("+QIND: \"FOTA\",\"END\",%d",error_code))
     {
-        if(error_code != 0) //todo: works?
+        if(error_code == 0) //todo: works?
         {
             break;
         }
+        _parser->flush();
     }
     mutex_unlock();
     return (0);
@@ -614,7 +615,7 @@ int QUECTEL_BG77::activate_pdp()
         }
         
     }
-
+    ThisThread::sleep_for(200ms);
     mutex_unlock();
 	return (status);
 }
@@ -637,10 +638,11 @@ char * QUECTEL_BG77::sync_ntp()
     mutex_lock();
     int status = 0;
     activate_pdp();
+    _parser->flush();
     _parser->set_timeout(60000); //important 
     char * timeBuff;
     timeBuff = (char *) malloc(24); 
-    //todo: http://time.google.com/ 
+    //todo: Check if google ntp is faster? http://time.google.com/ 
     _parser->send("AT+QNTP=1,\"pool.ntp.org\",123,1");
     if (!( _parser->recv("OK") && _parser->scanf("+QNTP: %d,\"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\"", &status, timeBuff, 
         timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, 
@@ -658,7 +660,6 @@ char * QUECTEL_BG77::sync_ntp()
         {
             sprintf (timeBuff,"%s", "2021/10/18,15:44:34+08");
         }
-
     }
     /** Format the time 
      */
