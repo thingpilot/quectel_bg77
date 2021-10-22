@@ -157,27 +157,27 @@ int QUECTEL_BG77::cfun(int mode)
 
 int QUECTEL_BG77::band_config()
 {
-    int  status = -1;
+    int  status = Q_SUCCESS;
     mutex_lock();
     _parser->send("AT+QCFG=\"band\",0,0,0x80000"); //band 20 we can have 
     if(!_parser->recv("OK"))
     {
         mutex_unlock();
-        return Q_FAILURE;
+        status = Q_FAILURE;
     }
 
     _parser->send("AT+QCFG=\"nb1/bandprior\",14"); //band 20
     if(!_parser->recv("OK"))
     {
         mutex_unlock();
-        return Q_FAILURE;
+         status = Q_FAILURE;
     }
 
     _parser->send("AT+QCFG=\"iotopmode\",1,1"); //configure network to be searched/ nbiot, take effect immediately
     if(!_parser->recv("OK"))
     {
         mutex_unlock();
-        return Q_FAILURE;
+        status = Q_FAILURE;
     }
 
     mutex_unlock();
@@ -256,7 +256,7 @@ int QUECTEL_BG77::csq(const char *apn)
     if (!_parser->recv("OK"))
     {
         mutex_unlock();
-        return Q_FAILURE;
+        status = Q_FAILURE;
     }
 
     _parser->set_timeout(5000);
@@ -416,25 +416,32 @@ int QUECTEL_BG77::tcpip_startup(const char *apn)
 
     if (at() != Q_SUCCESS)
     {
-	    return Q_FAILURE;
+	    status = Q_FAILURE;
     }
     if (cfun(1) != Q_SUCCESS)
     {
-	    return Q_FAILURE;
+        cfun(1);
+	    status = Q_FAILURE;
     }
     if (band_config() != QUECTEL_BG77::Q_SUCCESS)
     {
-        return Q_FAILURE;
+        band_config();
+        status = Q_FAILURE;
     }
-
     if (query_sim() != Q_SUCCESS )
     {
-        return Q_FAILURE;
+        query_sim();
+        status = Q_FAILURE;
     }
-
-    if (csq(apn) !=Q_SUCCESS)
+    if (csq(apn) != Q_SUCCESS)
     {
-        return Q_FAILURE;
+        csq(apn);
+        status = Q_FAILURE;
+    }
+    if (activate_pdp() != Q_SUCCESS)
+    {
+        activate_pdp();
+        status = Q_FAILURE;
     }
 	return (status);
 }
@@ -602,9 +609,10 @@ int QUECTEL_BG77::activate_pdp()
     _parser->set_timeout(1000);
     _parser->send("AT+QIACT?");
     char qibuff[16];
-    if(!((_parser->recv("+QIACT: 1,1,1,\"%13s\"", qibuff) 
-        || _parser->recv("+QIACT: 1,1,1,\"%14s\"", qibuff)) 
-            || _parser->recv("OK")))
+    if(!((_parser->recv("+QIACT: 1,1,1,\"%12s\"", qibuff)) 
+        || (_parser->recv("+QIACT: 1,1,1,\"%13s\"", qibuff))
+        || (_parser->recv("+QIACT: 1,1,1,\"%14s\"", qibuff))
+        || (_parser->recv("OK"))))
     {
         _parser->set_timeout(1000);
         _parser->send("AT+QIACT=1");
@@ -613,7 +621,6 @@ int QUECTEL_BG77::activate_pdp()
         {
            status = Q_FAILURE;
         }
-        
     }
     ThisThread::sleep_for(200ms);
     mutex_unlock();
@@ -651,7 +658,7 @@ char * QUECTEL_BG77::sync_ntp()
     {
         status = Q_FAILURE;
     }
-    if (status == 565 || status == -1)
+    if (timeBuff[0] != '2' || status == -1)
     {
         _parser->send("AT+QLTS=1");
         if (!(_parser->recv("OK") && _parser->scanf("+QLTS: \"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c", timeBuff, timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, 
