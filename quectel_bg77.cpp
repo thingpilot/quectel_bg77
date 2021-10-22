@@ -258,7 +258,8 @@ int QUECTEL_BG77::csq(const char *apn)
         mutex_unlock();
         status = Q_FAILURE;
     }
-
+    
+    activate_pdp();
     _parser->set_timeout(5000);
     for (int i = 0; i < 10; i++)
     {
@@ -413,11 +414,6 @@ int QUECTEL_BG77::tcpip_startup(const char *apn)
     {
         status = -1;	
     }
-
-    if (at() != Q_SUCCESS)
-    {
-	    status = Q_FAILURE;
-    }
     if (cfun(1) != Q_SUCCESS)
     {
         cfun(1);
@@ -438,11 +434,7 @@ int QUECTEL_BG77::tcpip_startup(const char *apn)
         csq(apn);
         status = Q_FAILURE;
     }
-    if (activate_pdp() != Q_SUCCESS)
-    {
-        activate_pdp();
-        status = Q_FAILURE;
-    }
+    
 	return (status);
 }
 
@@ -606,7 +598,7 @@ int QUECTEL_BG77::activate_pdp()
     int status = 0;
     char qiBuff[64];
     mutex_lock();
-    _parser->set_timeout(1000);
+    _parser->set_timeout(10000);
     _parser->send("AT+QIACT?");
     char qibuff[16];
     if(!((_parser->recv("+QIACT: 1,1,1,\"%12s\"", qibuff)) 
@@ -724,8 +716,6 @@ int QUECTEL_BG77::parse_latlon(float &lon, float &lat)
             break;
         }
     }
-    
-    //todo: xtra disabled?
     _parser->send("AT+QGPSXTRA=0");
     if (!_parser->recv("OK"))
     {
@@ -753,8 +743,8 @@ int QUECTEL_BG77::nmea_configuration()
 {
     int status = 0;
     mutex_lock();
-    _parser->send("AT+QGPSCFG=\"gpsnmeatype\"");
-    _parser->send("AT+QGPSCFG=\"gnssconfig\"");
+    _parser->send("AT+QGPSCFG=\"gpsnmeatype\",31");
+    _parser->send("AT+QGPSCFG=\"nmeasrc\",1");
     mutex_unlock();
 	return (status);
 }
