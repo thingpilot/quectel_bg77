@@ -189,7 +189,7 @@ int QUECTEL_BG77::scan_sequence(int scanseq)
     int status = 0;
     mutex_lock();
     _parser->send("AT+QCFG=\"nwscanseq\",0%d,1",scanseq);
-    rtos::ThisThread::sleep_for(300ms);
+    //rtos::ThisThread::sleep_for(300ms);
     if(!_parser->recv("OK"))
     {
         status = Q_FAILURE;
@@ -216,7 +216,7 @@ int QUECTEL_BG77::reset_band_config()
     int status = 0;
     mutex_lock();
     _parser->send("AT&F0");
-    rtos::ThisThread::sleep_for(300ms);
+    //rtos::ThisThread::sleep_for(300ms);
 	if (!_parser->recv("OK"))
 	{
 		status = Q_FAILURE;	
@@ -232,7 +232,7 @@ int QUECTEL_BG77::creg()
     _parser->send("AT+CEREG?");
     if (!_parser->recv("+CEREG: 0,5"))
     {
-        ThisThread::sleep_for(1s);
+        //ThisThread::sleep_for(1s);
         _parser->send("AT+CEREG=1");
         if (!_parser->recv("OK"))
         {
@@ -252,7 +252,7 @@ int QUECTEL_BG77::csq(const char *apn)
 
     //configure PDP context with QICSGP (vodafone APN)
     _parser->send("AT+QICSGP=1,1,\"%s\"",apn);
-    rtos::ThisThread::sleep_for(300ms);
+    //rtos::ThisThread::sleep_for(300ms);
     if (!_parser->recv("OK"))
     {
         mutex_unlock();
@@ -261,7 +261,7 @@ int QUECTEL_BG77::csq(const char *apn)
     
     activate_pdp();
     _parser->set_timeout(5000);
-    for (int i = 0; i < 10; i++)
+    for (int i = 0; i < 5; i++)
     {
         status = 0;
         _parser->send("AT+QCSQ");
@@ -409,7 +409,6 @@ int QUECTEL_BG77::tcpip_startup(const char *apn)
     int status = 0;
  
     _parser->send("AT+QGPSCFG=\"priority\",1");
-    rtos::ThisThread::sleep_for(100ms);
 	if (!_parser->recv("OK"))
     {
         status = -1;	
@@ -499,8 +498,9 @@ int QUECTEL_BG77::set_http_url(const char *url_m)
 bool QUECTEL_BG77::send_http_post(const char* http_header, uint8_t *http_body, size_t body_len, const char *stateStr)
 {
     mutex_lock();
-    _parser->set_timeout(12500);
     int status = 0;
+
+    _parser->set_timeout(12500);
     char isSafeChar[1];
     char contentLength[10];
     sprintf(contentLength, "%d\r\n\r\n", body_len); 
@@ -563,12 +563,12 @@ int QUECTEL_BG77::turn_off_module()
 {
     int status = 0;
     mutex_lock();
-    _parser->send("AT+QGPSEND");
-    if (!_parser->recv("OK"))
-	{
-		status = Q_FAILURE;	
-	}
-    ThisThread::sleep_for(100ms);
+    // _parser->send("AT+QGPSEND");
+    // if (!_parser->recv("OK"))
+	// {
+	// 	status = Q_FAILURE;	
+	// }
+    // ThisThread::sleep_for(100ms);
 
     _parser->send("AT+QPOWD");
     if (!_parser->recv("OK"))
@@ -599,22 +599,34 @@ int QUECTEL_BG77::activate_pdp()
     char qiBuff[64];
     mutex_lock();
     _parser->set_timeout(10000);
-    _parser->send("AT+QIACT?");
+    _parser->send("AT+COPS?");
+    if (!_parser->recv("+COPS: 0,0,\"Vodafone\",9")) 
+	{
+        enable_autoconnect();
+        //todo: qiact?
+		status = Q_FAILURE;
+	}
     char qibuff[16];
-    if(!((_parser->recv("+QIACT: 1,1,1,\"%12s\"", qibuff)) 
-        || (_parser->recv("+QIACT: 1,1,1,\"%13s\"", qibuff))
-        || (_parser->recv("+QIACT: 1,1,1,\"%14s\"", qibuff))
-        || (_parser->recv("OK"))))
+    _parser->send("AT+QIACT?");
+    if(!((_parser->scanf("+QIACT: 1,1,1,\"%12s\"", qibuff)) 
+        || (_parser->scanf("+QIACT: 1,1,1,\"%13s\"", qibuff))
+        || (_parser->scanf("+QIACT: 1,1,1,\"%14s\"", qibuff))
+        || (_parser->scanf("OK"))))
     {
         _parser->set_timeout(1000);
         _parser->send("AT+QIACT=1");
-        rtos::ThisThread::sleep_for(300ms);
+        //rtos::ThisThread::sleep_for(300ms);
         if (!_parser->recv("OK"))
         {
            status = Q_FAILURE;
         }
     }
-    ThisThread::sleep_for(200ms);
+    _parser->send("AT+CGDCONT?");
+    if (!_parser->recv("OK"))
+	{
+		status = Q_FAILURE;	
+	}
+    //ThisThread::sleep_for(200ms);
     mutex_unlock();
 	return (status);
 }
@@ -638,7 +650,7 @@ char * QUECTEL_BG77::sync_ntp()
     int status = 0;
     activate_pdp();
     _parser->flush();
-    _parser->set_timeout(60000); //important 
+    _parser->set_timeout(30000); //important 
     char * timeBuff;
     timeBuff = (char *) malloc(24); 
     //todo: Check if google ntp is faster? http://time.google.com/ 
@@ -652,13 +664,17 @@ char * QUECTEL_BG77::sync_ntp()
     }
     if (timeBuff[0] != '2' || status == -1)
     {
-        _parser->send("AT+QLTS=1");
-        if (!(_parser->recv("OK") && _parser->scanf("+QLTS: \"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c", timeBuff, timeBuff+1, timeBuff+2, timeBuff+3, timeBuff+4, 
+
+        _parser->send("AT+CCLK?");
+        if (!(_parser->scanf("\n+CCLK: \"%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c\"", timeBuff+2, timeBuff+3, timeBuff+4, 
                             timeBuff+5, timeBuff+6, timeBuff+7, timeBuff+8, timeBuff+9, timeBuff+10, timeBuff+11, timeBuff+12, timeBuff+13, timeBuff+14, 
-                            timeBuff+15, timeBuff+16, timeBuff+17, timeBuff+18, timeBuff+19)))
+                            timeBuff+15, timeBuff+16, timeBuff+17, timeBuff+18, timeBuff+19,timeBuff+20,timeBuff+21)) && (_parser->recv("\nOK")))
         {
-            sprintf (timeBuff,"%s", "2021/10/18,15:44:34+08");
+            //sprintf (timeBuff,"%s", previous_timeBuff); //todo: hold the previous time in case all fail?
         }
+        //
+        timeBuff[0] = '2';
+        timeBuff[1] = '0';
     }
     /** Format the time 
      */
@@ -703,7 +719,7 @@ int QUECTEL_BG77::parse_latlon(float &lon, float &lat)
     float hdop, altitude, spkm, spkn;
     int fix, nsat, err;
     float latt,lonn;
-   
+    _parser->set_timeout(3000);
     for (int i = 0; i < 6; i++)
     {
         _parser->send("AT+QGPSLOC=2");
@@ -724,7 +740,8 @@ int QUECTEL_BG77::parse_latlon(float &lon, float &lat)
     _parser->send("AT+QGPSEND");
     if (!_parser->recv("OK"))
     {
-       status = Q_FAILURE;
+        _parser->send("AT+QGPSEND");
+        status = Q_FAILURE;
     }
     mutex_unlock();
 	return status;
@@ -770,7 +787,7 @@ int QUECTEL_BG77::enable_xtra()
     }
 
     _parser->send("AT+QGPSCFG=\"xtra_download\",1");
-    rtos::ThisThread::sleep_for(1s);
+    //rtos::ThisThread::sleep_for(1s);
 	if (!_parser->recv("OK"))
     {
         status = Q_FAILURE;
